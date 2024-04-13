@@ -16,7 +16,6 @@ import {
 } from './types'
 import { AnyAbility, SubjectType } from '@casl/ability'
 import { Rule } from '@casl/ability/dist/types/Rule'
-import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
 
 export class CaslBridge {
     constructor(
@@ -312,9 +311,10 @@ export class CaslBridge {
      */
     private getParamName(context: QueryContext) {
         /* - paranoia check - */
-        if (!isFinite(context.parameter) || context.parameter < 0)
+        const n = Math.trunc(context.parameter++)
+        if (!isFinite(n) || n < 0)
             throw new Error('Invalid parameter index')
-        return `param_${context.parameter++}`
+        return `param_${n}`
     }
 
     ////////////////////////////////////////////////////////////

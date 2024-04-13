@@ -461,6 +461,14 @@ describe('CaslTypeOrmQuery', () => {
                 context.parameter = 'invalid' as any
                 expect(() => bridge['getParamName'](context)).to.throw()
             })
+
+            it('should return names with integer suffixes', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.parameter = 0.5
+                expect(bridge['getParamName'](context)).to.equal('param_0')
+                expect(bridge['getParamName'](context)).to.equal('param_1')
+                expect(bridge['getParamName'](context)).to.equal('param_2')
+            })
         })
     })
 
