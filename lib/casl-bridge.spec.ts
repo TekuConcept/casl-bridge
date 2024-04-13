@@ -1,4 +1,5 @@
 import 'mocha'
+import * as _ from 'lodash'
 import * as sinon from 'sinon'
 import { expect } from 'chai'
 import { CaslBridge } from './casl-bridge'
@@ -12,13 +13,35 @@ import { CaslGate, MongoFields, QueryContext } from './types'
 
 describe('CaslTypeOrmQuery', () => {
     let db: TestDatabase
+    let context: QueryContext
+    let repo: Repository<Book>
 
     before(async () => {
         db = new TestDatabase()
         await db.connect()
         await db.seed()
+        repo = db.source.getRepository(BookSchema)
     })
     after(async () => await db.disconnect())
+
+    beforeEach(() => {
+        context = {
+            parameter: 0,
+            table: '__table__',
+            join: null,
+            mongoQuery: null,
+            builder: null,
+            aliases: ['__table__'],
+            stack: [],
+            currentState: {
+                builder: null,
+                and: false,
+                where: null,
+                aliasID: 0,
+                repo,
+            }
+        }
+    })
 
     describe('createQuery', () => {
         let bridge: CaslBridge
@@ -46,13 +69,13 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         it('should select left-join if field provided', () => {
-            bridge.createQueryTo('read', 'Book', 'title', /*selectJoin=*/true)
+            const query = bridge.createQueryTo('read', 'Book', 'title', /*selectJoin=*/true)
             expect(insertOperations.calledOnce).to.be.true
             expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoin')
         })
 
         it('should select left-join-and-select', () => {
-            bridge.createQueryTo('read', 'Book', null, /*selectJoin=*/true)
+            const query = bridge.createQueryTo('read', 'Book', null, /*selectJoin=*/true)
             expect(insertOperations.calledOnce).to.be.true
             expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoinAndSelect')
         })
@@ -71,30 +94,19 @@ describe('CaslTypeOrmQuery', () => {
 
     describe('setup functions', () => {
         describe('selectField', () => {
-            let repo: Repository<Book>
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
                 repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
-                const queryBuilder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: queryBuilder,
-                    aliases: ['__table__'],
-                    stack: [],
+                const builder = repo.createQueryBuilder('__table__')
+                _.merge(context, {
+                    builder,
                     currentState: {
-                        builder: queryBuilder,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
+                        builder,
+                        where: builder.andWhere.bind(builder),
                     }
-                }
+                })
             })
 
             it('should not select field if none provided', () => {
@@ -163,18 +175,11 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('access functions', () => {
-        let repo: Repository<Book>
-
-        beforeEach(() => {
-            repo = db.source.getRepository(BookSchema)
-        })
-
         describe('isColumnKey', () => {
             let bridge: CaslBridge
             let ability: CaslGate
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 ability = new AbilityBuilder(createMongoAbility).build()
                 bridge = new CaslBridge(db.source, ability)
             })
@@ -212,22 +217,6 @@ describe('CaslTypeOrmQuery', () => {
             it('should throw if column is not valid', () => {
                 const bridge = new CaslBridge(db.source, null)
                 const sqlinjection = "id; DROP TABLE book; --"
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: ['__table__'],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
 
                 expect(() => bridge['createAliasFrom'](
                     context,
@@ -237,22 +226,7 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should throw if alias unavailable', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                context.aliases = []
 
                 expect(() => bridge['createAliasFrom'](
                     context,
@@ -262,22 +236,6 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should create a new alias', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: ['__table__'],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
 
                 const id = bridge['createAliasFrom'](context, 'author')
                 expect(id).to.equal(1)
@@ -289,28 +247,13 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('findAliasFor', () => {
-            let context: QueryContext
-
             beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
+                _.merge(context, {
                     aliases: [
                         '__table__',
                         '__table___author'
                     ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                })
             })
 
             it('should return true if the alias exists', () => {
@@ -325,28 +268,14 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('getAliasName', () => {
-            let context: QueryContext
-
             beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
+                _.merge(context, {
                     aliases: [
                         '__table__',
                         '__table___author'
                     ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
+                    currentState: { aliasID: 1 }
+                })
             })
 
             it('should throw if the id is invalid', () => {
@@ -366,30 +295,6 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('setColumn', () => {
-            let context: QueryContext
-
-            beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-            })
-
             it('should throw if column is invalid', () => {
                 const bridge = new CaslBridge(db.source, null)
                 const sqlinjection = "id; DROP TABLE book; --"
@@ -406,81 +311,17 @@ describe('CaslTypeOrmQuery', () => {
         describe('getColumn', () => {
             it('should throw if column is not set', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-
                 expect(() => bridge['getColumn'](context)).to.throw()
             })
 
             it('should get the current column', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        column: 'title',
-                        repo,
-                    }
-                }
-
+                _.merge(context, { currentState: { column: 'title' } })
                 expect(bridge['getColumn'](context)).to.equal('title')
             })
         })
 
         describe('getParamName', () => {
-            let context: QueryContext
-
-            beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-            })
-
             it('should return the parameter name', () => {
                 const bridge = new CaslBridge(db.source, null)
                 expect(bridge['getParamName'](context)).to.equal('param_0')
@@ -500,29 +341,17 @@ describe('CaslTypeOrmQuery', () => {
 
     describe('query builder functions', () => {
         describe('scopedInvoke', () => {
-            let repo: Repository<Book>
-            let context: QueryContext
             let bridge: CaslBridge
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 const builder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
+                _.merge(context, {
                     builder,
-                    aliases: ['__table__'],
-                    stack: [],
                     currentState: {
                         builder,
-                        and: false,
                         where: builder.andWhere.bind(builder),
-                        aliasID: 0,
-                        repo,
                     }
-                }
+                })
                 bridge = new CaslBridge(db.source, null)
             })
 
@@ -585,9 +414,7 @@ describe('CaslTypeOrmQuery', () => {
 
         describe('insertFields', () => {
             it('should insert multiple fields', () => {
-                const repo = db.source.getRepository(BookSchema)
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {} as any
                 const insertField = sinon.stub(bridge, <any>'insertField')
                 const fields: MongoFields = {
                     id: 1,
@@ -605,20 +432,15 @@ describe('CaslTypeOrmQuery', () => {
         describe('insertField', () => {
             let insertOperation: sinon.SinonStub
             let insertObject: sinon.SinonStub
-            let repo: Repository<Book>
             let bridge: CaslBridge
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 insertOperation = sinon.stub(bridge, <any>'insertOperation')
                 insertObject = sinon.stub(bridge, <any>'insertObject')
             })
 
             it('uses setColumn to set the column', () => {
-                const context: QueryContext = {
-                    currentState: {}
-                } as any
                 const setColumn = sinon.stub(bridge, <any>'setColumn')
                 bridge['insertField'](context, 'title', null)
 
@@ -627,9 +449,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should use `is` operation for null value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'title', null)
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -637,9 +456,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should use `in` operation for array value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'id', [1, 2, 3])
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -647,9 +463,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should use `eq` operation for single value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'title', 'A Book Title')
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -657,9 +470,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should insert object', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 const fields: MongoFields = { $ge: 1, $le: 10 }
                 bridge['insertField'](context, 'id', fields)
 
@@ -671,34 +481,23 @@ describe('CaslTypeOrmQuery', () => {
         describe('insertObject', () => {
             let insertFields: sinon.SinonStub
             let insertOperations: sinon.SinonStub
-            let repo: Repository<Book>
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 insertFields = sinon.stub(bridge, <any>'insertFields')
                 insertOperations = sinon.stub(bridge, <any>'insertOperations')
 
-                const queryBuilder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: queryBuilder.leftJoin.bind(queryBuilder),
-                    mongoQuery: null,
-                    builder: queryBuilder,
-                    aliases: ['__table__'],
-                    stack: [],
+                const builder = repo.createQueryBuilder('__table__')
+                _.merge(context, {
+                    join: builder.leftJoin.bind(builder),
+                    builder,
                     currentState: {
-                        builder: queryBuilder,
-                        and: false,
-                        where: queryBuilder.andWhere.bind(queryBuilder),
-                        aliasID: 0,
+                        builder,
+                        where: builder.andWhere.bind(builder),
                         column: 'title',
-                        repo,
                     }
-                }
+                })
             })
 
             it('should throw if current column is not found', () => {
@@ -782,7 +581,6 @@ describe('CaslTypeOrmQuery', () => {
         describe('insertOperations', () => {
             it('should insert multiple operations', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {} as any
                 const insertOperation = sinon.stub(bridge, <any>'insertOperation')
                 const fields: MongoFields = { $ge: 1, $le: 10 }
 
@@ -795,31 +593,20 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('insertOperation', () => {
-            let repo: Repository<Book>
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 const builder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
+                _.merge(context, {
                     join: builder.leftJoin.bind(builder),
-                    mongoQuery: null,
                     builder,
-                    aliases: ['__table__'],
-                    stack: [],
                     currentState: {
                         builder,
-                        and: false,
                         where: builder.andWhere.bind(builder),
-                        aliasID: 0,
                         column: '',
-                        repo,
                     }
-                }
+                })
             })
 
             it('should throw if operand isn\'t an object', () => {
@@ -1037,10 +824,6 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('example queries', () => {
-        let repo: Repository<Book>
-
-        before(() => repo = db.source.getRepository(BookSchema))
-
         it('should read all books', async () => {
             const builder = new AbilityBuilder(createMongoAbility)
             builder.can('read', 'Book')
