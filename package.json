@@ -2,10 +2,12 @@
   "name": "casl-bridge",
   "version": "1.0.0",
   "description": "A query bridge between CASL rules and database ORMs",
-  "main": "index.js",
+  "main": "dist/lib/index.js",
+  "typings": "./index.d.ts",
   "scripts": {
     "test": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register 'lib/**/*.spec.ts'",
-    "test:cov": "c8 npm run test"
+    "test:cov": "c8 npm run test",
+    "build": "tsc"
   },
   "repository": {
     "type": "git",

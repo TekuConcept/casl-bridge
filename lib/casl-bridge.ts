@@ -1,4 +1,10 @@
-import { Repository, Brackets, NotBrackets } from 'typeorm'
+import {
+    Repository,
+    Brackets,
+    NotBrackets,
+    DataSource,
+    EntityManager
+} from 'typeorm'
 import {
     CaslGate,
     MongoFields,
@@ -8,13 +14,13 @@ import {
     ScopedCallback,
     ScopedOptions
 } from './types'
-import { AnyAbility, Subject } from '@casl/ability'
+import { AnyAbility, SubjectType } from '@casl/ability'
 import { Rule } from '@casl/ability/dist/types/Rule'
 import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
 
-export class CaslBridge<R = Subject> {
+export class CaslBridge {
     constructor(
-        public readonly repo: Repository<R>,
+        public readonly manager: DataSource | EntityManager,
         public readonly casl: CaslGate
     ) {}
 
@@ -23,13 +29,15 @@ export class CaslBridge<R = Subject> {
      * with respect to the CASL rules for the given action. It is
      * the caller's responsibility to execute the query.
      * 
-     * @param action The permissible action. Default is 'read'.
+     * @param action The permissible action, eg `read`, `update`, etc.
+     * @param subject The subject type to query, eg `Book`, `Author`, etc.
      * @param field The (optional) field to select. Default is all fields.
      * @param selectJoin Whether to select joined fields. Default is false.
      * @returns The TypeORM query builder instance.
      */
-    createQuery(
-        action: string = 'read',
+    createQueryTo(
+        action: string,
+        subject: SubjectType,
         field?: string,
         selectJoin: boolean = false
     ) {
@@ -47,7 +55,8 @@ export class CaslBridge<R = Subject> {
          * ----------------------------------------------------------
          */
         const table = '__table__'
-        const builder = this.repo.createQueryBuilder(table)
+        const repo = this.manager.getRepository(subject)
+        const builder = repo.createQueryBuilder(table)
 
         const mainstate: QueryState = {
             builder,
@@ -55,13 +64,13 @@ export class CaslBridge<R = Subject> {
             column: '',
             and: true,
             where: builder.andWhere.bind(builder),
-            repo: this.repo
+            repo,
         }
 
         const mongoQuery = this.rulesToQuery(
             this.casl,
             action,
-            this.repo.metadata.targetName,
+            subject,
             field
         )
 
@@ -107,7 +116,7 @@ export class CaslBridge<R = Subject> {
 
         const useRepo = context.currentState.repo
         const column = this.checkColumn(field, useRepo)
-        const relative = this.repo.metadata.relations.find(
+        const relative = useRepo.metadata.relations.find(
             r => r.propertyName === column
         )
 
@@ -131,7 +140,7 @@ export class CaslBridge<R = Subject> {
     private rulesToQuery<T extends AnyAbility>(
         ability: T,
         action: string,
-        subjectType: string,
+        subjectType?: SubjectType,
         field?: string
     ): MongoQueryObject | null {
         const query: any = {}
