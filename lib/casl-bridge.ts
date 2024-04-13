@@ -112,9 +112,9 @@ export class CaslBridge {
         const { field } = context
         if (!field) return
 
-        const useRepo = context.currentState.repo
-        const column = this.checkColumn(field, useRepo)
-        const relative = useRepo.metadata.relations.find(
+        const { repo } = context.currentState
+        const column = this.checkColumn(field, repo)
+        const relative = repo.metadata.relations.find(
             r => r.propertyName === column
         )
 
@@ -266,8 +266,8 @@ export class CaslBridge {
      * @param column The column name to set.
      */
     private setColumn(context: QueryContext, column: string) {
-        const useRepo = context.currentState.repo
-        context.currentState.column = this.checkColumn(column, useRepo)
+        const { repo } = context.currentState
+        context.currentState.column = this.checkColumn(column, repo)
     }
 
     /**
