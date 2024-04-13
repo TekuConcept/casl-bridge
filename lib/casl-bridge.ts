@@ -566,8 +566,9 @@ export class CaslBridge {
      *         `aliases` cache. All aliases are built from    *
      *         column names and the table alias.              *
      *                                                        *
-     * `column` is validated when setColumn(), checkColumn(), *
-     *          or isColumnKey() is called.                   *
+     * `column` is validated when setColumn() or              *
+     *          checkColumn() is called. checkColumn() may    *
+     *          be overridden for more strict checks.         *
      *                                                        *
      * `param` is dynamically generated and incremented with  *
      *         each call to getParamName(). This is to ensure *
@@ -578,7 +579,7 @@ export class CaslBridge {
      *         `param_1`,                                     *
      *         `param_2`, etc.                                *
      *                                                        *
-     *         with a paranoya check to ensure N is always    *
-     *         numeric, finite, and positive.                 *
+     *         with a paranoia check to ensure N is always    *
+     *         numeric, finite, positive, and whole.          *
     \**********************************************************/
 }
