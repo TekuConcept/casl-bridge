@@ -29,12 +29,15 @@ describe('CaslTypeOrmQuery', () => {
             parameter: 0,
             table: '__table__',
             join: null,
+            selectMap: false,
+            selected: new Set(),
             mongoQuery: null,
             builder: null,
             aliases: ['__table__'],
             columns: [],
             stack: [],
             currentState: {
+                selectMap: false,
                 builder: null,
                 and: false,
                 where: null,
@@ -51,7 +54,7 @@ describe('CaslTypeOrmQuery', () => {
 
         beforeEach(() => {
             const builder = new AbilityBuilder(createMongoAbility)
-            builder.can('read', 'Book')
+            builder.can('read', 'Book', { id: 1 })
             ability = builder.build()
 
             bridge = new CaslBridge(db.source, ability)
@@ -63,38 +66,20 @@ describe('CaslTypeOrmQuery', () => {
             expect(query.getQuery()).toMatchSnapshot()
         })
 
-        it('should select left-join by default', () => {
-            bridge.createQueryTo('read', 'Book')
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoin')
-        })
-
-        it('should select left-join if field provided', () => {
-            const query = bridge.createQueryTo('read', 'Book', 'title', /*selectJoin=*/true)
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoin')
-        })
-
-        it('should select left-join-and-select', () => {
-            const query = bridge.createQueryTo('read', 'Book', null, /*selectJoin=*/true)
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoinAndSelect')
-        })
-
         it('should protect against field SQL injection', () => {
-            // See also test for `selectField`
+            // See also test for `selectPrimaryField`
             expect(() => bridge.createQueryTo('read', 'Book', "id; DROP TABLE book; --")).to.throw()
         })
 
         it('should maintain table alias name', () => {
-            bridge.createQueryTo('read', 'Book')
+            bridge.createQueryTo('read', 'Book', 'id')
             expect(insertOperations.calledOnce).to.be.true
             expect(insertOperations.args[0][0].table).to.equal('__table__')
         })
     })
 
     describe('setup functions', () => {
-        describe('selectField', () => {
+        describe('selectPrimaryField', () => {
             let bridge: CaslBridge
 
             beforeEach(() => {
@@ -111,28 +96,49 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should not select field if none provided', () => {
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should throw if field is invalid', () => {
                 context.field = '; DROP TABLE book; --'
-                expect(() => bridge['selectField'](context)).to.throw()
+                expect(() => bridge['selectPrimaryField'](context)).to.throw()
             })
 
             it('should select a field', () => {
                 context.field = 'title'
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should select a relative field', () => {
                 context.field = 'author'
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
                 expect(context.aliases).to.deep.equal([
                     '__table__',
                     '__table___author'
+                ])
+            })
+        })
+
+        describe('selectAllImmediateFields', () => {
+            it('should select all immediate fields', () => {
+                const bridge = new CaslBridge(db.source, null)
+
+                const builder = repo.createQueryBuilder('__table__')
+                context.join = builder.leftJoin.bind(builder)
+                context.currentState.where = builder.andWhere.bind(builder)
+                context.currentState.selectMap = true
+
+                bridge['selectAllImmediateFields'](context)
+
+                expect(Array.from(context.selected)).to.deep.equal([
+                    '__table__.id',
+                    '__table__.title',
+                    '__table__.author',
+                    '__table___author.id',
+                    '__table___author.name',
                 ])
             })
         })
@@ -446,6 +452,98 @@ describe('CaslTypeOrmQuery', () => {
             })
         })
 
+        describe('selectField', () => {
+            beforeEach(() => {
+                _.merge(context, {
+                    columns: [{ propertyName: 'id' } as any],
+                    currentState: {
+                        aliasID: 0,
+                        columnID: 0,
+                    }
+                })
+            })
+
+            it('should not select if primary field is already selected', () => {
+                const bridge = new CaslBridge(null, null)
+                context.field = 'id'
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should not select if false selectMap', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = false
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should select if true selectMap', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = true
+                bridge['selectField'](context)
+                expect(Array.from(context.selected))
+                    .to.deep.equal(['__table__.id'])
+            })
+
+            it('should not select if false selectMap property', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { id: false }
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should select if true selectMap property', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { id: true }
+                bridge['selectField'](context)
+                expect(Array.from(context.selected))
+                    .to.deep.equal(['__table__.id'])
+            })
+
+            it('should not select for unsupported selectMap type', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = 42 as any
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+        })
+
+        describe('nextSelectMap', () => {
+            it('should return a boolean value for non-objects', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = 42 as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.true
+
+                context.currentState.selectMap = '' as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.false
+            })
+
+            it('should return false for non-existen properties', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { title: true }
+                expect(bridge['nextSelectMap'](context, 'author')).to.be.false
+            })
+
+            it('should return a boolean value for non-object property values', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = {
+                    title: 'yes',
+                    author: ''
+                } as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.true
+                expect(bridge['nextSelectMap'](context, 'author')).to.be.false
+            })
+
+            it('should return object property values', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = {
+                    author: { name: true },
+                }
+                expect(bridge['nextSelectMap'](context, 'author'))
+                    .to.deep.equal({ name: true })
+            })
+        })
+
         describe('getParamName', () => {
             it('should return the parameter name', () => {
                 const bridge = new CaslBridge(db.source, null)
@@ -575,10 +673,14 @@ describe('CaslTypeOrmQuery', () => {
 
             it('uses setColumn to set the column', () => {
                 const setColumn = sinon.stub(bridge, <any>'setColumn')
+                const selectField = sinon.stub(bridge, <any>'selectField')
+
                 bridge['insertField'](context, 'title', null)
 
                 expect(setColumn.calledOnce).to.be.true
                 expect(setColumn.calledWith(context, 'title')).to.be.true
+                expect(selectField.calledOnce).to.be.true
+                expect(selectField.calledWith(context)).to.be.true
             })
 
             it('should use `is` operation for null value', () => {
@@ -603,11 +705,14 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should insert object', () => {
+                context.currentState.selectMap = true
                 const fields: MongoFields = { $ge: 1, $le: 10 }
                 bridge['insertField'](context, 'id', fields)
 
                 expect(insertObject.calledOnce).to.be.true
                 expect(insertObject.calledWith(context, fields)).to.be.true
+
+                expect(Array.from(context.selected)).to.deep.equal(['__table__.id'])
             })
         })
 
@@ -971,6 +1076,7 @@ describe('CaslTypeOrmQuery', () => {
 
             const actualCount = await repo.count()
             const count = await query.getCount()
+            expect(query.getQuery()).toMatchSnapshot()
             expect(count).to.equal(actualCount)
         })
 
@@ -985,6 +1091,19 @@ describe('CaslTypeOrmQuery', () => {
             const entries = await query.getMany()
 
             expect(entries.length).to.equal(2)
+        })
+
+        it('should read book IDs', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book', { id: 1 })
+            builder.can('read', 'Book', { id: 3 })
+            const ability = builder.build()
+
+            const bridge = new CaslBridge(db.source, ability)
+            const query = bridge.createQueryTo('read', 'Book', { id: true })
+            const entries = await query.getMany()
+
+            expect(entries).toMatchSnapshot()
         })
 
         it('should throw before malicious query can be executed', () => {

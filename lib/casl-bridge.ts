@@ -3,7 +3,8 @@ import {
     Brackets,
     NotBrackets,
     DataSource,
-    EntityManager
+    EntityManager,
+    SelectQueryBuilder
 } from 'typeorm'
 import {
     CaslGate,
@@ -12,7 +13,8 @@ import {
     QueryContext,
     QueryState,
     ScopedCallback,
-    ScopedOptions
+    ScopedOptions,
+    Selected
 } from './types'
 import { AnyAbility, SubjectType } from '@casl/ability'
 import { Rule } from '@casl/ability/dist/types/Rule'
@@ -31,15 +33,64 @@ export class CaslBridge {
      * @param action The permissible action, eg `read`, `update`, etc.
      * @param subject The subject type to query, eg `Book`, `Author`, etc.
      * @param field The (optional) field to select. Default is all fields.
-     * @param selectJoin Whether to select joined fields. Default is false.
+     * @param selectMap Whether to select fields. When `true`, all
+     *     fields are selected including relations. No fields are selected
+     *     when false. When an object, only the keys of the object
+     *     corresponding to column names are selected with respect to
+     *     their truthiness. Default is `true`.
+     * 
+     *     NOTE: The `field` parameter will override this setting.
      * @returns The TypeORM query builder instance.
      */
     createQueryTo(
         action: string,
         subject: SubjectType,
-        field?: string,
-        selectJoin: boolean = false
-    ) {
+        field: string,
+        selectMap?: Selected
+    ): SelectQueryBuilder<any>;
+
+    /**
+     * Creates a new TypeORM query builder and sets up the query
+     * with respect to the CASL rules for the given action. It is
+     * the caller's responsibility to execute the query.
+     * 
+     * @param action The permissible action, eg `read`, `update`, etc.
+     * @param subject The subject type to query, eg `Book`, `Author`, etc.
+     * @param selectMap Whether to select fields. When `true`, all
+     *     fields are selected including relations. No fields are selected
+     *     when false. When an object, only the keys of the object
+     *     corresponding to column names are selected with respect to
+     *     their truthiness. Default is `true`.
+     * 
+     *     NOTE: The `field` parameter will override this setting.
+     * @returns The TypeORM query builder instance.
+     */
+    createQueryTo(
+        action: string,
+        subject: SubjectType,
+        selectMap: Selected
+    ): SelectQueryBuilder<any>;
+
+    /**
+     * Creates a new TypeORM query builder and sets up the query
+     * with respect to the CASL rules for the given action. It is
+     * the caller's responsibility to execute the query.
+     * 
+     * @param action The permissible action, eg `read`, `update`, etc.
+     * @param subject The subject type to query, eg `Book`, `Author`, etc.
+     * @returns The TypeORM query builder instance.
+     */
+    createQueryTo(
+        action: string,
+        subject: SubjectType,
+    ): SelectQueryBuilder<any>;
+
+    createQueryTo(
+        action: string,
+        subject: SubjectType,
+        field?: string | Selected,
+        selectMap?: Selected
+    ): SelectQueryBuilder<any> {
         /**
          * ----------------------------------------------------------
          * IMPORTANT: Extra care must be taken here!
@@ -57,19 +108,30 @@ export class CaslBridge {
         const repo = this.manager.getRepository(subject)
         const builder = repo.createQueryBuilder(table)
 
+        // handle collapsed parameters
+        if ((typeof field === 'object' ||
+            typeof field === 'boolean') &&
+            selectMap === undefined
+        ) {
+            selectMap = field
+            field = undefined
+        }
+        if (selectMap === undefined) selectMap = true
+
         const mainstate: QueryState = {
             builder,
             aliasID: 0,
             and: true,
             where: builder.andWhere.bind(builder),
             repo,
+            selectMap,
         }
 
         const mongoQuery = this.rulesToQuery(
             this.casl,
             action,
             subject,
-            field
+            field as string
         )
 
         if (!mongoQuery) {
@@ -80,51 +142,115 @@ export class CaslBridge {
         const context: QueryContext = {
             parameter: 0,
             table,
-            join: null,
+            join: builder['leftJoin'].bind(builder),
             mongoQuery,
             builder,
-            field,
+            field: field as string,
+            selectMap,
+            selected: new Set(),
             aliases: [table],
             columns: [],
             stack: [],
             currentState: mainstate
         }
 
-        /**
-         * Setup the left-join function for this context.
-         * We don't want to select if a field is already
-         * selected or the user has disabled relational
-         * selections.
-         */
-        const join = (selectJoin && !field)
-                ? builder['leftJoinAndSelect']
-                : builder['leftJoin']
-        context.join = join.bind(builder)
+        this.selectPrimaryField(context)
+        if (Object.keys(mongoQuery).length === 0)
+            this.selectAllImmediateFields(context)
+        else this.insertOperations(context, context.mongoQuery)
 
-        this.selectField(context)
-        this.insertOperations(context, context.mongoQuery)
+        builder.select(Array.from(context.selected))
 
         return builder
     }
 
-    private selectField(context: QueryContext) {
+    private selectPrimaryField(context: QueryContext) {
         const { field } = context
+
         if (!field) return
 
-        const { repo } = context.currentState
+        context.selectMap = true
+        context.currentState.selectMap = true
+
+        context.field = null // allow selectField to work
         this.setColumn(context, field)
-        const columnName = this.getColumnName(context)
+        this.selectField(context)
+        context.field = field
 
-        // select before left-join to deselect all other
-        // fields except those related to the current field
-        const selected = `__table__.${columnName}`
-        context.builder.select(selected)
+        if (!this.isColumnJoinable(context)) return
 
-        if (this.isColumnJoinable(context)) {
-            const alias = this.createAliasFrom(context)
-            const aliasName = this.getAliasName(context, alias)
-            context.builder.leftJoinAndSelect(selected, aliasName)
-        }
+        /**
+         * join the column if it is a relation
+         */
+
+        const nextAliasID   = this.createAliasFrom(context)
+        const nextAliasName = this.getAliasName(context, nextAliasID)
+        const aliasName     = this.getAliasName(context)
+        const columnName    = this.getColumnName(context)
+
+        context.builder.leftJoin(`${aliasName}.${columnName}`, nextAliasName)
+
+        /**
+         * select all whitelisted fields from the relation
+         */
+
+        const { repo } = context.currentState
+        const repoType = this.getJoinableType(context)
+        const nextRepo = repo.manager.getRepository(repoType)
+
+        this.scopedInvoke(context, () => {
+            context.field = null // allow selectField to work
+            nextRepo.metadata.ownColumns.forEach(metadata => {
+                const joinColumnName = metadata.propertyName
+                this.setColumn(context, joinColumnName)
+                this.selectField(context)
+            })
+            context.field = field
+        }, {
+            aliasID: nextAliasID,
+            repo: nextRepo,
+            selectMap: this.nextSelectMap(context, field)
+        })
+    }
+
+    private selectAllImmediateFields(context: QueryContext) {
+        const { repo } = context.currentState
+        const { field } = context
+
+        repo.metadata.ownColumns.forEach(metadata => {
+            const column = metadata.propertyName
+
+            context.field = null // allow selectField to work
+            this.setColumn(context, column)
+            this.selectField(context)
+            context.field = field
+
+            if (!metadata.relationMetadata) return
+
+            const nextAliasID = this.createAliasFrom(context)
+            const nextAliasName = this.getAliasName(context, nextAliasID)
+            const aliasName = this.getAliasName(context)
+            const columnName = this.getColumnName(context)
+
+            context.join(`${aliasName}.${columnName}`, nextAliasName)
+
+            const repoType = this.getJoinableType(context)
+            const nextRepo = repo.manager.getRepository(repoType)
+
+            this.scopedInvoke(context, () => {
+                nextRepo.metadata.ownColumns.forEach(metadata => {
+                    const joinColumn = metadata.propertyName
+                    context.field = null // allow selectField to work
+                    this.setColumn(context, joinColumn)
+                    this.selectField(context)
+                    context.field = field
+                })
+            }, {
+                aliasID: nextAliasID,
+                repo: nextRepo,
+                selectMap: this.nextSelectMap(context, column)
+            })
+        })
     }
 
     /**
@@ -300,6 +426,46 @@ export class CaslBridge {
     }
 
     /**
+     * Adds the given column to the list of selected fields.
+     * If the column is disabled in the select map, it will not
+     * be added to the list.
+     * 
+     * @param context The current query building context.
+     * @param column The column to select.
+     */
+    private selectField(
+        context: QueryContext,
+        columnID?: number
+    ) {
+        if (context.field) return
+
+        const { selectMap } = context.currentState
+        const columnName = this.getColumnName(context, columnID)
+        const aliasName = this.getAliasName(context)
+        const selectName = `${aliasName}.${columnName}`
+
+        const selected =
+            (typeof selectMap === 'boolean' && selectMap) ||
+            (typeof selectMap === 'object' && !!selectMap[columnName])
+
+        if (selected) context.selected.add(selectName)
+    }
+
+    /**
+     * NOTE: column name is only used here to get the next
+     *       select map. It is not used for anything else.
+     */
+    private nextSelectMap(
+        context: QueryContext,
+        column: string
+    ) {
+        const { selectMap } = context.currentState
+        if (typeof selectMap !== 'object') return !!selectMap
+        const value = selectMap[column]
+        return typeof value === 'object' ? value : !!value
+    }
+
+    /**
      * Gets the parameterization name for the current context.
      * The value is always unique and incremental. It takes the
      * form of `param_0`, `param_1`, `param_2`, etc.
@@ -339,6 +505,7 @@ export class CaslBridge {
             aliasID: context.currentState.aliasID,
             columnID: context.currentState.columnID,
             repo: context.currentState.repo,
+            selectMap: context.selectMap,
             and: true,
             not: false
         }, options ?? {})
@@ -354,7 +521,8 @@ export class CaslBridge {
                 where: opts.and
                     ? qb.andWhere.bind(qb)
                     : qb.orWhere.bind(qb),
-                repo: opts.repo
+                repo: opts.repo,
+                selectMap: opts.selectMap
             }
 
             context.stack.push(context.currentState)
@@ -382,6 +550,7 @@ export class CaslBridge {
         value: any,
     ) {
         this.setColumn(context, column)
+        this.selectField(context)
 
         /**
          * Determine the type of operation the value represents.
@@ -441,12 +610,12 @@ export class CaslBridge {
          * If alias is already joined, we don't need to join it again
          */
 
+        const columnName = this.getColumnName(context)
         let nextAliasID = this.findAliasIDFor(context)
         if (nextAliasID < 0) {
             nextAliasID = this.createAliasFrom(context)
             const nextAliasName = this.getAliasName(context, nextAliasID)
             const aliasName = this.getAliasName(context, aliasID)
-            const columnName = this.getColumnName(context)
 
             context.join(`${aliasName}.${columnName}`, nextAliasName)
         }
@@ -458,7 +627,12 @@ export class CaslBridge {
         this.scopedInvoke(context, () => {
             if (isQuery) this.insertOperations(context, obj as MongoQueryObject)
             else this.insertFields(context, obj as MongoFields)
-        }, { aliasID: nextAliasID, repo: nextRepo, columnID: null })
+        }, {
+            aliasID: nextAliasID,
+            repo: nextRepo,
+            columnID: null,
+            selectMap: this.nextSelectMap(context, columnName),
+        })
     }
 
     private insertOperations(
