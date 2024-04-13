@@ -1,0 +1,55 @@
+{
+  "name": "casl-bridge",
+  "version": "1.0.0",
+  "description": "A query bridge between CASL rules and database ORMs",
+  "main": "index.js",
+  "scripts": {
+    "test": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register 'lib/**/*.spec.ts'",
+    "test:cov": "c8 npm run test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TekuConcept/casl-bridge.git"
+  },
+  "keywords": [
+    "casl",
+    "orm",
+    "typeorm",
+    "query",
+    "sql"
+  ],
+  "author": "Chris Walker (TekuConcept)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/TekuConcept/casl-bridge/issues"
+  },
+  "homepage": "https://github.com/TekuConcept/casl-bridge#readme",
+  "devDependencies": {
+    "@faker-js/faker": "^8.4.1",
+    "@types/chai": "^4.3.14",
+    "@types/lodash": "^4.17.0",
+    "@types/mocha": "^10.0.6",
+    "@types/sinon": "^17.0.3",
+    "better-sqlite3": "^9.5.0",
+    "c8": "^9.1.0",
+    "chai": "^4.3.7",
+    "lodash": "^4.17.21",
+    "mocha": "^10.4.0",
+    "mocha-chai-jest-snapshot": "^1.1.4",
+    "sinon": "^17.0.1",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@casl/ability": "^6.7.1",
+    "typeorm": "^0.3.20"
+  },
+  "jest": {
+    "snapshotResolver": "<rootDir>/test/snapshot-resolver.js",
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ]
+  }
+}
