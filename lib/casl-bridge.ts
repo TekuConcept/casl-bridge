@@ -102,16 +102,14 @@ export class CaslBridge {
                 : builder['leftJoin']
         context.join = join.bind(builder)
 
-        this.selectField(context, field)
+        this.selectField(context)
         this.insertOperations(context, context.mongoQuery)
 
         return builder
     }
 
-    private selectField(
-        context: QueryContext,
-        field?: string
-    ) {
+    private selectField(context: QueryContext) {
+        const { field } = context
         if (!field) return
 
         const useRepo = context.currentState.repo

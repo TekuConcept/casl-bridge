@@ -98,21 +98,24 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should not select field if none provided', () => {
-                bridge['selectField'](context, null)
+                bridge['selectField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should throw if field is invalid', () => {
-                expect(() => bridge['selectField'](context, '; DROP TABLE book; --')).to.throw()
+                context.field = '; DROP TABLE book; --'
+                expect(() => bridge['selectField'](context)).to.throw()
             })
 
             it('should select a field', () => {
-                bridge['selectField'](context, 'title')
+                context.field = 'title'
+                bridge['selectField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should select a relative field', () => {
-                bridge['selectField'](context, 'author')
+                context.field = 'author'
+                bridge['selectField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
                 expect(context.aliases).to.deep.equal([
                     '__table__',
