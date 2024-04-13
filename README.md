@@ -18,12 +18,66 @@ $ npm install casl-bridge
 
 ## Example
 
-A simple demonstration:
+A simple demonstration...
+
+```ts
+async function main() {
+    const source = getTypeOrmSource()
+    const builder = new AbilityBuilder(createMongoAbility)
+
+    builder.can('read', 'Book', { id: 1 })
+    builder.can('read', 'Book', { id: 3 })
+
+    const ability = builder.build()
+
+    /* --------------------------------------
+     * link everything together with a bridge
+     */
+
+    const bridge = new CaslBridge(source, ability)
+}
+```
+
+### Basic Calls
+
+```ts
+/* --------------------------------------
+ * query all entries
+ */
+
+const books = await bridge
+    .createQueryTo('read', 'Book')
+    .getMany()
+
+/* --------------------------------------
+ * query a single field
+ */
+
+const ids = await bridge
+    .createQueryTo('read', 'Book', 'id')
+    .getMany()
+
+/* --------------------------------------
+ * select specific fields
+ */
+
+const names = await bridge
+    .createQueryTo('read', 'Book', {
+        title: true,
+        author: { name: true }
+    })
+    .limit(3)
+    .getMany()
+```
+
+### Database Setup
 
 ```ts
 import { DataSource } from 'typeorm'
 
-// Our TypeOrm database connection
+/* --------------------------------------
+ * Our TypeOrm database connection
+ */
 
 const source = new DataSource({
     type: 'better-sqlite3',
@@ -36,23 +90,11 @@ const source = new DataSource({
     ],
 })
 
-async function main() {
+async function connect() {
     await source.initialize()
 
-    // ...seed your database here
-
-    const builder = new AbilityBuilder(createMongoAbility)
-
-    builder.can('read', 'Book', { id: 1 })
-    builder.can('read', 'Book', { id: 3 })
-
-    const ability = builder.build()
-
-    // link everything together with a bridge
-
-    const bridge  = new CaslBridge(source, ability)
-    const entries = await bridge
-        .createQueryTo('read', 'Book')
-        .getMany()
+    /* --------------------------------------
+     * ...seed your database here
+     */
 }
 ```
