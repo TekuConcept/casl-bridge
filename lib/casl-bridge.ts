@@ -61,7 +61,6 @@ export class CaslBridge {
         const mainstate: QueryState = {
             builder,
             aliasID: 0,
-            column: '',
             and: true,
             where: builder.andWhere.bind(builder),
             repo,
@@ -87,6 +86,7 @@ export class CaslBridge {
             builder,
             field,
             aliases: [table],
+            columns: [],
             stack: [],
             currentState: mainstate
         }
@@ -113,19 +113,18 @@ export class CaslBridge {
         if (!field) return
 
         const { repo } = context.currentState
-        const column = this.checkColumn(field, repo)
-        const relative = repo.metadata.relations.find(
-            r => r.propertyName === column
-        )
+        this.setColumn(context, field)
+        const columnName = this.getColumnName(context)
 
         // select before left-join to deselect all other
         // fields except those related to the current field
-        context.builder.select(`__table__.${column}`)
+        const selected = `__table__.${columnName}`
+        context.builder.select(selected)
 
-        if (relative) {
-            const alias = this.createAliasFrom(context, column)
+        if (this.isColumnJoinable(context)) {
+            const alias = this.createAliasFrom(context)
             const aliasName = this.getAliasName(context, alias)
-            context.builder.leftJoinAndSelect(`__table__.${column}`, aliasName)
+            context.builder.leftJoinAndSelect(selected, aliasName)
         }
     }
 
@@ -171,32 +170,15 @@ export class CaslBridge {
     ////////////////////////////////////////////////////////////
 
     /**
-     * Checks if the given key is a valid column key.
-     * This is a critical security check to prevent SQL injection.
-     * This function may be overridden to provide more strict checks.
+     * This will throw an error if the specified column
+     * does not exist in the given repository's table.
      * 
-     * @param key The column key to check.
-     * @returns True if the key is a valid column key, false otherwise.
-     */
-    protected isColumnKey(
-        key: string,
-        repo: Repository<any>
-    ): boolean {
-        // Map of columns and relations of the entity.
-        const map = repo.metadata.ownColumns
-        const result = map.find(k => k.propertyName === key)
-        return result ? true : false
-    }
-
-    /**
-     * This will throw an error if the column
-     * key is invalid, otherwise return the
-     * key as-is.
+     * Override this function for more strict checks.
      * 
      * @param column The column key to check.
-     * @returns The column key if valid.
+     * @returns The column metadata if valid.
      */
-    private checkColumn(
+    protected checkColumn(
         column: string,
         repo: Repository<any>
     ) {
@@ -204,40 +186,39 @@ export class CaslBridge {
          *   !! THIS CHECK IS CRITICAL !!   *
         \* -------------------------------- */
 
-        if (!column || !this.isColumnKey(column, repo))
-            throw new Error(`Invalid column key ${column}`)
-        return column
+        const map = repo.metadata.ownColumns
+        const metadata = map.find(k => k.propertyName === column)
+
+        if (!metadata) throw new Error(`Invalid column key ${column}`)
+        return metadata
     }
 
     /**
      * IMPORTANT:
-     * All alias names MUST be created with `createAliasFrom()`.
+     * All alias names MUST be created with `createAliasFrom()`!
      * 
      * @param context The current query building context.
-     * @param column The column name to create an alias from.
+     * @param columnID The associated column ID. If not provided,
+     *                 the current scope's column ID is used.
      */
     private createAliasFrom(
         context: QueryContext,
-        column: string,
-        repo?: Repository<any>
+        columnID?: number
     ) {
-        const useRepo = repo ?? context.currentState.repo
-        const columnName = this.checkColumn(column, useRepo)
+        const columnName = this.getColumnName(context, columnID)
         const parentAlias = this.getAliasName(context)
         const aliasName = `${parentAlias}_${columnName}`
-        const id = context.aliases.length
+        const aid = context.aliases.length
 
         context.aliases.push(aliasName)
 
-        return id
+        return aid
     }
 
-    private findAliasFor(
-        context: QueryContext,
-        column: string
-    ) {
+    private findAliasIDFor(context: QueryContext) {
         const parentAlias = this.getAliasName(context)
-        const aliasName = `${parentAlias}_${column}`
+        const columnName = this.getColumnName(context)
+        const aliasName = `${parentAlias}_${columnName}`
         return context.aliases.indexOf(aliasName)
     }
 
@@ -265,21 +246,58 @@ export class CaslBridge {
      * @param context The current query building context.
      * @param column The column name to set.
      */
-    private setColumn(context: QueryContext, column: string) {
+    private setColumn(
+        context: QueryContext,
+        column: string
+    ) {
         const { repo } = context.currentState
-        context.currentState.column = this.checkColumn(column, repo)
+        const metadata = this.checkColumn(column, repo)
+        if (context.columns.indexOf(metadata) < 0)
+            context.columns.push(metadata)
+        context.currentState.columnID = context.columns.indexOf(metadata)
     }
 
     /**
-     * Gets the current column for the query context.
+     * Gets the column name for the query context.
      * 
      * @param context The current query building context.
-     * @returns The current column name.
+     * @param id The associated column ID. If not provided,
+     *           the current scope's column ID is used.
+     * @returns The column name.
      */
-    private getColumn(context: QueryContext) {
-        if (!context.currentState.column)
-            throw new Error('No column set in current context')
-        return context.currentState.column
+    private getColumnName(
+        context: QueryContext,
+        id?: number
+    ) {
+        const cid = id ?? context.currentState.columnID
+        const column = context.columns[cid]
+        if (!column) throw new Error(`Column ID ${cid} not found in context`)
+        return column.propertyName
+    }
+
+    /**
+     * NOTE: This will also return false if the column is
+     *       not found in the current context or invalid.
+     */
+    private isColumnJoinable(
+        context: QueryContext,
+        id?: number
+    ) {
+        const cid = id ?? context.currentState.columnID
+        const column = context.columns[cid]
+        return !!column?.relationMetadata
+    }
+
+    private getJoinableType(
+        context: QueryContext,
+        id?: number
+    ) {
+        const cid = id ?? context.currentState.columnID
+        const column = context.columns[cid]
+        if (!column) throw new Error(`Column ${cid} not found in context`)
+        if (!column.relationMetadata)
+            throw new Error(`Column ${cid} has no relational data`)
+        return column.relationMetadata.type
     }
 
     /**
@@ -293,7 +311,7 @@ export class CaslBridge {
      * @param context The current query building context.
      */
     private getParamName(context: QueryContext) {
-        /* - paranoya check - */
+        /* - paranoia check - */
         if (!isFinite(context.parameter) || context.parameter < 0)
             throw new Error('Invalid parameter index')
         return `param_${context.parameter++}`
@@ -319,7 +337,7 @@ export class CaslBridge {
     ) {
         const opts = Object.assign({
             aliasID: context.currentState.aliasID,
-            column: context.currentState.column,
+            columnID: context.currentState.columnID,
             repo: context.currentState.repo,
             and: true,
             not: false
@@ -331,7 +349,7 @@ export class CaslBridge {
             const nextState: QueryState = {
                 builder: qb,
                 aliasID: opts.aliasID,
-                column: opts.column,
+                columnID: opts.columnID,
                 and: opts.and,
                 where: opts.and
                     ? qb.andWhere.bind(qb)
@@ -389,23 +407,18 @@ export class CaslBridge {
     ) {
         const { aliasID, and, repo } = context.currentState
         const isQuery = Object.keys(obj).every(key => key.startsWith('$'))
-        let columnInfo: ColumnMetadata = {} as any
-        let columnName = ''
+        const isJoinable = this.isColumnJoinable(context)
 
         if (mode === 'normal') {
             /**
              * First we need to find the associated column info.
              */
 
-            columnName = this.getColumn(context)
-            columnInfo = repo.metadata.ownColumns.find(
-                c => c.propertyName === columnName
-            )
-
-            if (!columnInfo)
-                throw new Error(`Column ${columnName} not found`)
-            if (!columnInfo.relationMetadata && !isQuery)
-                throw new Error(`Column ${columnName} has no relational data`)
+            if (!isJoinable && !isQuery) {
+                throw new Error(`Column ${
+                    this.getColumnName(context)
+                } has no relational data`)
+            }
         }
 
         /**
@@ -413,14 +426,14 @@ export class CaslBridge {
          * then let's just insert the operations or fields.
          */
 
-        if (!columnInfo.relationMetadata) {
+        if (!isJoinable) {
             if (isQuery) this.insertOperations(context, obj as MongoQueryObject)
             else this.insertFields(context, obj as MongoFields)
 
             return
         }
 
-        const repoType = columnInfo.relationMetadata.type
+        const repoType = this.getJoinableType(context)
         const nextRepo = repo.manager.getRepository(repoType)
 
         /**
@@ -428,15 +441,12 @@ export class CaslBridge {
          * If alias is already joined, we don't need to join it again
          */
 
-        let nextAliasID = this.findAliasFor(context, columnName)
+        let nextAliasID = this.findAliasIDFor(context)
         if (nextAliasID < 0) {
-            nextAliasID = this.createAliasFrom(
-                context,
-                columnName,
-                repo,
-            )
+            nextAliasID = this.createAliasFrom(context)
             const nextAliasName = this.getAliasName(context, nextAliasID)
             const aliasName = this.getAliasName(context, aliasID)
+            const columnName = this.getColumnName(context)
 
             context.join(`${aliasName}.${columnName}`, nextAliasName)
         }
@@ -448,7 +458,7 @@ export class CaslBridge {
         this.scopedInvoke(context, () => {
             if (isQuery) this.insertOperations(context, obj as MongoQueryObject)
             else this.insertFields(context, obj as MongoFields)
-        }, { aliasID: nextAliasID, repo: nextRepo })
+        }, { aliasID: nextAliasID, repo: nextRepo, columnID: null })
     }
 
     private insertOperations(
@@ -468,11 +478,9 @@ export class CaslBridge {
     ) {
         const { builder, where, repo } = context.currentState
         const aliasName = this.getAliasName(context)
-        const param = this.getParamName(context)
+        const param     = this.getParamName(context)
+        const columnID  = context.currentState.columnID
         let columnName: string = undefined
-
-        if (operator !== '$and' && operator !== '$or')
-            columnName = this.getColumn(context)
 
         switch (operator) {
         case '$and':
@@ -481,6 +489,7 @@ export class CaslBridge {
             if (!operand || typeof operand !== 'object')
                 throw new Error(`Invalid operand for ${operator} operation`)
             break
+        default: columnName = this.getColumnName(context); break
         }
 
         switch (operator) {
@@ -493,7 +502,7 @@ export class CaslBridge {
         case '$not':
             this.scopedInvoke(context, () => {
                 this.insertObject(context, operand, 'no-column')
-            }, { column: columnName, not: true })
+            }, { columnID, not: true })
             break
         case '$is':
             if (operand === null) where(`${aliasName}.${columnName} IS NULL`)

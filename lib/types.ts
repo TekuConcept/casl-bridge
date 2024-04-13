@@ -14,6 +14,7 @@ import {
     SelectQueryBuilder,
     WhereExpressionBuilder
 } from 'typeorm'
+import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
 
 export type CaslRule = SubjectRawRule<
     string, ExtractSubjectType<Subject>, MongoQuery
@@ -71,7 +72,7 @@ export interface QueryState {
         parameters?: ObjectLiteral
     ) => WhereExpressionBuilder
     aliasID: number
-    column?: string
+    columnID?: number
     repo: Repository<any>
 }
 
@@ -90,6 +91,8 @@ export interface QueryContext {
     field?: string
     // the list of aliases created and validated
     aliases: string[]
+    // the list of validated columns
+    columns: ColumnMetadata[]
     // the bracketed query stack
     stack: QueryState[]
     // the current query state
@@ -104,8 +107,8 @@ export type ScopedCallback = (
 
 export interface ScopedOptions {
     aliasID?: number
+    columnID?: number
     repo?: Repository<any>
     and?: boolean
     not?: boolean
-    column?: string
 }
