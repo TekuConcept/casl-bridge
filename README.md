@@ -1,7 +1,7 @@
 # casl-bridge
 
 [![NPM Latest Release](https://img.shields.io/npm/v/casl-bridge.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-100%-purple)](https://nestjs.com/)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-purple)](https://nestjs.com/)
 
 A query bridge between CASL rules and TypeORM
 
