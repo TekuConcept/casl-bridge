@@ -129,7 +129,7 @@ export class TestDatabase {
     }
 
     private async seedBooks(author: Author) {
-        const rand = Math.floor(Math.random() * 10)
+        const rand = Math.floor(Math.random() * 5) + 5
         for (let i = 0; i < rand; i++) {
             const book = new Book({
                 title: faker.music.songName(),

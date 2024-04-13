@@ -1,4 +1,5 @@
 import 'mocha'
+import * as _ from 'lodash'
 import * as sinon from 'sinon'
 import { expect } from 'chai'
 import { CaslBridge } from './casl-bridge'
@@ -12,13 +13,39 @@ import { CaslGate, MongoFields, QueryContext } from './types'
 
 describe('CaslTypeOrmQuery', () => {
     let db: TestDatabase
+    let context: QueryContext
+    let repo: Repository<Book>
 
     before(async () => {
         db = new TestDatabase()
         await db.connect()
         await db.seed()
+        repo = db.source.getRepository(BookSchema)
     })
     after(async () => await db.disconnect())
+
+    beforeEach(() => {
+        context = {
+            parameter: 0,
+            table: '__table__',
+            join: null,
+            selectMap: false,
+            selected: new Set(),
+            mongoQuery: null,
+            builder: null,
+            aliases: ['__table__'],
+            columns: [],
+            stack: [],
+            currentState: {
+                selectMap: false,
+                builder: null,
+                and: false,
+                where: null,
+                aliasID: 0,
+                repo,
+            }
+        }
+    })
 
     describe('createQuery', () => {
         let bridge: CaslBridge
@@ -27,7 +54,7 @@ describe('CaslTypeOrmQuery', () => {
 
         beforeEach(() => {
             const builder = new AbilityBuilder(createMongoAbility)
-            builder.can('read', 'Book')
+            builder.can('read', 'Book', { id: 1 })
             ability = builder.build()
 
             bridge = new CaslBridge(db.source, ability)
@@ -39,87 +66,79 @@ describe('CaslTypeOrmQuery', () => {
             expect(query.getQuery()).toMatchSnapshot()
         })
 
-        it('should select left-join by default', () => {
-            bridge.createQueryTo('read', 'Book')
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoin')
-        })
-
-        it('should select left-join if field provided', () => {
-            bridge.createQueryTo('read', 'Book', 'title', /*selectJoin=*/true)
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoin')
-        })
-
-        it('should select left-join-and-select', () => {
-            bridge.createQueryTo('read', 'Book', null, /*selectJoin=*/true)
-            expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].join.name).to.equal('bound leftJoinAndSelect')
-        })
-
         it('should protect against field SQL injection', () => {
-            // See also test for `selectField`
+            // See also test for `selectPrimaryField`
             expect(() => bridge.createQueryTo('read', 'Book', "id; DROP TABLE book; --")).to.throw()
         })
 
         it('should maintain table alias name', () => {
-            bridge.createQueryTo('read', 'Book')
+            bridge.createQueryTo('read', 'Book', 'id')
             expect(insertOperations.calledOnce).to.be.true
             expect(insertOperations.args[0][0].table).to.equal('__table__')
         })
     })
 
     describe('setup functions', () => {
-        describe('selectField', () => {
-            let repo: Repository<Book>
+        describe('selectPrimaryField', () => {
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
                 repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
-                const queryBuilder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: queryBuilder,
-                    aliases: ['__table__'],
-                    stack: [],
+                const builder = repo.createQueryBuilder('__table__')
+                _.merge(context, {
+                    builder,
                     currentState: {
-                        builder: queryBuilder,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
+                        builder,
+                        where: builder.andWhere.bind(builder),
                     }
-                }
+                })
             })
 
             it('should not select field if none provided', () => {
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should throw if field is invalid', () => {
                 context.field = '; DROP TABLE book; --'
-                expect(() => bridge['selectField'](context)).to.throw()
+                expect(() => bridge['selectPrimaryField'](context)).to.throw()
             })
 
             it('should select a field', () => {
                 context.field = 'title'
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should select a relative field', () => {
                 context.field = 'author'
-                bridge['selectField'](context)
+                bridge['selectPrimaryField'](context)
                 expect(context.builder.getQuery()).toMatchSnapshot()
                 expect(context.aliases).to.deep.equal([
                     '__table__',
                     '__table___author'
+                ])
+            })
+        })
+
+        describe('selectAllImmediateFields', () => {
+            it('should select all immediate fields', () => {
+                const bridge = new CaslBridge(db.source, null)
+
+                const builder = repo.createQueryBuilder('__table__')
+                context.join = builder.leftJoin.bind(builder)
+                context.currentState.where = builder.andWhere.bind(builder)
+                context.currentState.selectMap = true
+
+                bridge['selectAllImmediateFields'](context)
+
+                expect(Array.from(context.selected)).to.deep.equal([
+                    '__table__.id',
+                    '__table__.title',
+                    '__table__.author',
+                    '__table___author.id',
+                    '__table___author.name',
                 ])
             })
         })
@@ -163,32 +182,6 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('access functions', () => {
-        let repo: Repository<Book>
-
-        beforeEach(() => {
-            repo = db.source.getRepository(BookSchema)
-        })
-
-        describe('isColumnKey', () => {
-            let bridge: CaslBridge
-            let ability: CaslGate
-
-            beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
-                ability = new AbilityBuilder(createMongoAbility).build()
-                bridge = new CaslBridge(db.source, ability)
-            })
-
-            it('should return true for a valid column key', () => {
-                expect(bridge['isColumnKey']('title', repo)).to.be.true
-            })
-
-            it('should return false for an invalid column key', () => {
-                const sqlinjection = "id; DROP TABLE book; --"
-                expect(bridge['isColumnKey'](sqlinjection, repo)).to.be.false
-            })
-        })
-
         describe('checkColumn', () => {
             it('should throw if column is null or empty', () => {
                 const bridge = new CaslBridge(null, null)
@@ -202,84 +195,60 @@ describe('CaslTypeOrmQuery', () => {
                 expect(() => bridge['checkColumn'](sqlinjection, repo)).to.throw()
             })
 
-            it('should return the column key', () => {
+            it('should return valid column metadata', () => {
                 const bridge = new CaslBridge(db.source, null)
-                expect(bridge['checkColumn']('title', repo)).to.equal('title')
+                expect(
+                    bridge['checkColumn']('title', repo).propertyName
+                ).to.equal('title')
             })
         })
 
         describe('createAliasFrom', () => {
-            it('should throw if column is not valid', () => {
+            it('should throw if column not set', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const sqlinjection = "id; DROP TABLE book; --"
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: ['__table__'],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                delete context.currentState.columnID
+                expect(() => bridge['createAliasFrom'](context)).to.throw()
+            })
 
-                expect(() => bridge['createAliasFrom'](
-                    context,
-                    sqlinjection,
-                )).to.throw()
+            it('should throw if column unavailable', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = []
+                context.currentState.columnID = 1
+                expect(() => bridge['createAliasFrom'](context)).to.throw()
             })
 
             it('should throw if alias unavailable', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                context.columns = [{ propertyName: 'title' } as any]
+                context.currentState.columnID = 0
+                context.currentState.aliasID = 1
+                context.aliases = []
 
-                expect(() => bridge['createAliasFrom'](
-                    context,
-                    'author',
-                )).to.throw()
+                expect(() => bridge['createAliasFrom'](context)).to.throw()
             })
 
             it('should create a new alias', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: ['__table__'],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                context.columns = [{ propertyName: 'title' } as any]
+                context.currentState.columnID = 0
 
-                const id = bridge['createAliasFrom'](context, 'author')
+                const id = bridge['createAliasFrom'](context)
+                expect(id).to.equal(1)
+                expect(context.aliases).to.deep.equal([
+                    '__table__',
+                    '__table___title'
+                ])
+            })
+
+            it('should create a new alias from columnID', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = [
+                    { propertyName: 'title' } as any,
+                    { propertyName: 'author' } as any
+                ]
+                context.currentState.columnID = 0
+
+                const id = bridge['createAliasFrom'](context, 1)
                 expect(id).to.equal(1)
                 expect(context.aliases).to.deep.equal([
                     '__table__',
@@ -288,70 +257,48 @@ describe('CaslTypeOrmQuery', () => {
             })
         })
 
-        describe('findAliasFor', () => {
-            let context: QueryContext
-
+        describe('findAliasIDFor', () => {
             beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
+                _.merge(context, {
                     aliases: [
                         '__table__',
                         '__table___author'
                     ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 0,
-                        repo,
-                    }
-                }
+                    columns: [
+                        { propertyName: 'title' } as any,
+                        { propertyName: 'author' } as any
+                    ],
+                })
             })
 
-            it('should return true if the alias exists', () => {
+            it('should return the alias ID if the alias exists', () => {
                 const bridge = new CaslBridge(db.source, null)
-                expect(bridge['findAliasFor'](context, 'author')).to.equal(1)
+                context.currentState.columnID = 1
+                expect(bridge['findAliasIDFor'](context)).to.equal(1)
             })
 
-            it('should return false if the alias does not exist', () => {
+            it('should return -1 if the alias does not exist', () => {
                 const bridge = new CaslBridge(db.source, null)
-                expect(bridge['findAliasFor'](context, 'book')).to.equal(-1)
+                context.currentState.columnID = 0
+                expect(bridge['findAliasIDFor'](context)).to.equal(-1)
             })
         })
 
         describe('getAliasName', () => {
-            let context: QueryContext
-
             beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
+                _.merge(context, {
                     aliases: [
                         '__table__',
                         '__table___author'
                     ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
+                    currentState: { aliasID: 1 }
+                })
             })
 
             it('should throw if the id is invalid', () => {
                 const bridge = new CaslBridge(db.source, null)
-                expect(() => bridge['getAliasName'](context, -1)).to.throw()
+                context.aliases = []
+                expect(() => bridge['getAliasName'](context)).to.throw()
             })
 
             it('should return the alias name of the given id', () => {
@@ -366,30 +313,6 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('setColumn', () => {
-            let context: QueryContext
-
-            beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-            })
-
             it('should throw if column is invalid', () => {
                 const bridge = new CaslBridge(db.source, null)
                 const sqlinjection = "id; DROP TABLE book; --"
@@ -398,89 +321,230 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should set the column', () => {
                 const bridge = new CaslBridge(db.source, null)
+                context.columns = []
                 bridge['setColumn'](context, 'title')
-                expect(context.currentState.column).to.equal('title')
+                expect(context.currentState.columnID).to.equal(0)
+                expect(context.columns[0].propertyName).to.equal('title')
+            })
+
+            it('should not add metadata if already added', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = []
+                bridge['setColumn'](context, 'title')
+                bridge['setColumn'](context, 'title')
+                expect(context.columns.length).to.equal(1)
             })
         })
 
-        describe('getColumn', () => {
-            it('should throw if column is not set', () => {
-                const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
+        describe('getColumnName', () => {
+            beforeEach(() => {
+                _.merge(context, {
+                    columns: [
+                        { propertyName: 'title' } as any,
+                        { propertyName: 'author' } as any
                     ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-
-                expect(() => bridge['getColumn'](context)).to.throw()
+                    currentState: { columnID: 1 }
+                })
             })
 
-            it('should get the current column', () => {
+            it('should throw if the columnID is not set', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        column: 'title',
-                        repo,
-                    }
-                }
+                delete context.currentState.columnID
+                expect(() => bridge['getColumnName'](context)).to.throw()
+            })
 
-                expect(bridge['getColumn'](context)).to.equal('title')
+            it('should throw if the id is invalid', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = []
+                expect(() => bridge['getColumnName'](context)).to.throw()
+            })
+
+            it('should return the column name of the given id', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['getColumnName'](context, 0)).to.equal('title')
+            })
+
+            it('should return the column name of the current state', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['getColumnName'](context)).to.equal('author')
+            })
+        })
+
+        describe('isColumnJoinable', () => {
+            beforeEach(() => {
+                _.merge(context, {
+                    columns: [
+                        { propertyName: 'title' } as any,
+                        {
+                            propertyName: 'author',
+                            relationMetadata: {}
+                        } as any
+                    ],
+                    currentState: { columnID: 1 }
+                })
+            })
+
+            it('may return false if the columnID is not set', () => {
+                const bridge = new CaslBridge(db.source, null)
+                delete context.currentState.columnID
+                expect(bridge['isColumnJoinable'](context)).to.be.false
+            })
+
+            it('may return false if the id is invalid', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = []
+                expect(bridge['isColumnJoinable'](context)).to.be.false
+            })
+
+            it('should return the status of the given id', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['isColumnJoinable'](context, 0)).to.be.false
+            })
+
+            it('should return the status of the current state', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['isColumnJoinable'](context)).to.be.true
+            })
+        })
+
+        describe('getJoinableType', () => {
+            beforeEach(() => {
+                _.merge(context, {
+                    columns: [
+                        { propertyName: 'title' } as any,
+                        {
+                            propertyName: 'author',
+                            relationMetadata: { type: 'Author' }
+                        } as any
+                    ],
+                    currentState: { columnID: 1 }
+                })
+            })
+
+            it('should throw if the columnID is not set', () => {
+                const bridge = new CaslBridge(db.source, null)
+                delete context.currentState.columnID
+                expect(() => bridge['getJoinableType'](context))
+                    .to.throw('Column undefined not found in context')
+            })
+
+            it('should throw if the id is invalid', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.columns = []
+                expect(() => bridge['getJoinableType'](context))
+                    .to.throw('Column 1 not found in context')
+            })
+
+            it('should throw if the column is not joinable', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(() => bridge['getJoinableType'](context, 0))
+                    .to.throw('Column 0 has no relational data')
+            })
+
+            it('should return the status of the given id', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['getJoinableType'](context, 1)).to.equal('Author')
+            })
+
+            it('should return the status of the current state', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(bridge['getJoinableType'](context)).to.equal('Author')
+            })
+        })
+
+        describe('selectField', () => {
+            beforeEach(() => {
+                _.merge(context, {
+                    columns: [{ propertyName: 'id' } as any],
+                    currentState: {
+                        aliasID: 0,
+                        columnID: 0,
+                    }
+                })
+            })
+
+            it('should not select if primary field is already selected', () => {
+                const bridge = new CaslBridge(null, null)
+                context.field = 'id'
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should not select if false selectMap', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = false
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should select if true selectMap', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = true
+                bridge['selectField'](context)
+                expect(Array.from(context.selected))
+                    .to.deep.equal(['__table__.id'])
+            })
+
+            it('should not select if false selectMap property', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { id: false }
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+
+            it('should select if true selectMap property', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { id: true }
+                bridge['selectField'](context)
+                expect(Array.from(context.selected))
+                    .to.deep.equal(['__table__.id'])
+            })
+
+            it('should not select for unsupported selectMap type', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = 42 as any
+                bridge['selectField'](context)
+                expect(context.selected.size).to.equal(0)
+            })
+        })
+
+        describe('nextSelectMap', () => {
+            it('should return a boolean value for non-objects', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = 42 as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.true
+
+                context.currentState.selectMap = '' as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.false
+            })
+
+            it('should return false for non-existen properties', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = { title: true }
+                expect(bridge['nextSelectMap'](context, 'author')).to.be.false
+            })
+
+            it('should return a boolean value for non-object property values', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = {
+                    title: 'yes',
+                    author: ''
+                } as any
+                expect(bridge['nextSelectMap'](context, 'title')).to.be.true
+                expect(bridge['nextSelectMap'](context, 'author')).to.be.false
+            })
+
+            it('should return object property values', () => {
+                const bridge = new CaslBridge(null, null)
+                context.currentState.selectMap = {
+                    author: { name: true },
+                }
+                expect(bridge['nextSelectMap'](context, 'author'))
+                    .to.deep.equal({ name: true })
             })
         })
 
         describe('getParamName', () => {
-            let context: QueryContext
-
-            beforeEach(() => {
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
-                    builder: null,
-                    aliases: [
-                        '__table__',
-                        '__table___author'
-                    ],
-                    stack: [],
-                    currentState: {
-                        builder: null,
-                        and: false,
-                        where: null,
-                        aliasID: 1,
-                        repo,
-                    }
-                }
-            })
-
             it('should return the parameter name', () => {
                 const bridge = new CaslBridge(db.source, null)
                 expect(bridge['getParamName'](context)).to.equal('param_0')
@@ -495,46 +559,42 @@ describe('CaslTypeOrmQuery', () => {
                 context.parameter = 'invalid' as any
                 expect(() => bridge['getParamName'](context)).to.throw()
             })
+
+            it('should return names with integer suffixes', () => {
+                const bridge = new CaslBridge(db.source, null)
+                context.parameter = 0.5
+                expect(bridge['getParamName'](context)).to.equal('param_0')
+                expect(bridge['getParamName'](context)).to.equal('param_1')
+                expect(bridge['getParamName'](context)).to.equal('param_2')
+            })
         })
     })
 
     describe('query builder functions', () => {
         describe('scopedInvoke', () => {
-            let repo: Repository<Book>
-            let context: QueryContext
             let bridge: CaslBridge
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 const builder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: null,
-                    mongoQuery: null,
+                _.merge(context, {
                     builder,
-                    aliases: ['__table__'],
-                    stack: [],
                     currentState: {
                         builder,
-                        and: false,
                         where: builder.andWhere.bind(builder),
-                        aliasID: 0,
-                        repo,
                     }
-                }
+                })
                 bridge = new CaslBridge(db.source, null)
             })
 
             it('should invoke callback within new scope', () => {
                 const stub = sinon.stub()
-                context.currentState.column = ''
+                context.currentState.columnID = null
 
                 bridge['scopedInvoke'](context, (ctx, build) => {
                     expect(ctx.stack.length).to.equal(1)
                     expect(context.currentState.builder).to.equal(build)
                     expect(context.currentState.aliasID).to.equal(0)
-                    expect(context.currentState.column).to.be.empty
+                    expect(context.currentState.columnID).to.be.null
                     expect(context.currentState.and).to.be.true
                     expect(context.currentState.where.name).to.equal('bound andWhere')
                     stub()
@@ -551,11 +611,11 @@ describe('CaslTypeOrmQuery', () => {
                     expect(ctx.stack.length).to.equal(1)
                     expect(context.currentState.builder).to.equal(build)
                     expect(context.currentState.aliasID).to.equal(1)
-                    expect(context.currentState.column).to.be.empty
+                    expect(context.currentState.columnID).to.be.null
                     expect(context.currentState.and).to.be.false
                     expect(context.currentState.where.name).to.equal('bound orWhere')
                     stub()
-                }, { aliasID: 1, repo, and: false, column: '' })
+                }, { aliasID: 1, repo, and: false, columnID: null })
 
                 expect(context.stack.length).to.equal(0)
                 expect(stub.calledOnce).to.be.true
@@ -585,9 +645,7 @@ describe('CaslTypeOrmQuery', () => {
 
         describe('insertFields', () => {
             it('should insert multiple fields', () => {
-                const repo = db.source.getRepository(BookSchema)
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {} as any
                 const insertField = sinon.stub(bridge, <any>'insertField')
                 const fields: MongoFields = {
                     id: 1,
@@ -605,31 +663,27 @@ describe('CaslTypeOrmQuery', () => {
         describe('insertField', () => {
             let insertOperation: sinon.SinonStub
             let insertObject: sinon.SinonStub
-            let repo: Repository<Book>
             let bridge: CaslBridge
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 insertOperation = sinon.stub(bridge, <any>'insertOperation')
                 insertObject = sinon.stub(bridge, <any>'insertObject')
             })
 
             it('uses setColumn to set the column', () => {
-                const context: QueryContext = {
-                    currentState: {}
-                } as any
                 const setColumn = sinon.stub(bridge, <any>'setColumn')
+                const selectField = sinon.stub(bridge, <any>'selectField')
+
                 bridge['insertField'](context, 'title', null)
 
                 expect(setColumn.calledOnce).to.be.true
                 expect(setColumn.calledWith(context, 'title')).to.be.true
+                expect(selectField.calledOnce).to.be.true
+                expect(selectField.calledWith(context)).to.be.true
             })
 
             it('should use `is` operation for null value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'title', null)
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -637,9 +691,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should use `in` operation for array value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'id', [1, 2, 3])
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -647,9 +698,6 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should use `eq` operation for single value', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
                 bridge['insertField'](context, 'title', 'A Book Title')
 
                 expect(insertOperation.calledOnce).to.be.true
@@ -657,65 +705,55 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should insert object', () => {
-                const context: QueryContext = {
-                    currentState: { repo }
-                } as any
+                context.currentState.selectMap = true
                 const fields: MongoFields = { $ge: 1, $le: 10 }
                 bridge['insertField'](context, 'id', fields)
 
                 expect(insertObject.calledOnce).to.be.true
                 expect(insertObject.calledWith(context, fields)).to.be.true
+
+                expect(Array.from(context.selected)).to.deep.equal(['__table__.id'])
             })
         })
 
         describe('insertObject', () => {
             let insertFields: sinon.SinonStub
             let insertOperations: sinon.SinonStub
-            let repo: Repository<Book>
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 insertFields = sinon.stub(bridge, <any>'insertFields')
                 insertOperations = sinon.stub(bridge, <any>'insertOperations')
 
-                const queryBuilder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
-                    join: queryBuilder.leftJoin.bind(queryBuilder),
-                    mongoQuery: null,
-                    builder: queryBuilder,
-                    aliases: ['__table__'],
-                    stack: [],
+                const builder = repo.createQueryBuilder('__table__')
+                _.merge(context, {
+                    join: builder.leftJoin.bind(builder),
+                    builder,
+                    columns: [
+                        { propertyName: 'id' } as any,
+                        { propertyName: 'title' } as any,
+                        {
+                            propertyName: 'author',
+                            relationMetadata: { type: 'Author' }
+                        } as any
+                    ],
                     currentState: {
-                        builder: queryBuilder,
-                        and: false,
-                        where: queryBuilder.andWhere.bind(queryBuilder),
-                        aliasID: 0,
-                        column: 'title',
-                        repo,
+                        builder,
+                        where: builder.andWhere.bind(builder),
                     }
-                }
-            })
-
-            it('should throw if current column is not found', () => {
-                context.currentState.column = 'unknown'
-                expect(() => bridge['insertObject'](context, {}))
-                    .to.throw('Column unknown not found')
+                })
             })
 
             it('should throw if expecting relational data', () => {
-                // _enforced_ call will throw an error (enforced by default)
-                context.currentState.column = 'title'
+                // non-queryable object with non-relational data
+                context.currentState.columnID = 1
                 expect(() => bridge['insertObject'](context, { name: '' }))
                     .to.throw('Column title has no relational data')
             })
 
             it('should invoke non-relational insertOperations', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 const fields: MongoFields = { $ge: 1, $le: 10 }
 
                 bridge['insertObject'](context, fields)
@@ -724,7 +762,7 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should invoke non-relational insertFields', () => {
-                context.currentState.column = ''
+                context.currentState.columnID = 0
                 const fields: MongoFields = { id: 2 }
 
                 bridge['insertObject'](context, fields, 'no-column')
@@ -735,7 +773,7 @@ describe('CaslTypeOrmQuery', () => {
             it('should join columns if not already aliased', () => {
                 const join = sinon.stub()
                 const fields: MongoFields = { name: 'Author Name' }
-                context.currentState.column = 'author'
+                context.currentState.columnID = 2
                 context.join = join
 
                 insertFields.callsFake((ctx, fields) => {
@@ -759,7 +797,7 @@ describe('CaslTypeOrmQuery', () => {
                 const join = sinon.stub()
                 const fields: MongoFields = { $eq: 'Author Name' }
                 context.aliases = ['__table__', '__table___author']
-                context.currentState.column = 'author'
+                context.currentState.columnID = 2
                 context.join = join
 
                 insertOperations.callsFake((ctx, fields) => {
@@ -782,7 +820,6 @@ describe('CaslTypeOrmQuery', () => {
         describe('insertOperations', () => {
             it('should insert multiple operations', () => {
                 const bridge = new CaslBridge(db.source, null)
-                const context: QueryContext = {} as any
                 const insertOperation = sinon.stub(bridge, <any>'insertOperation')
                 const fields: MongoFields = { $ge: 1, $le: 10 }
 
@@ -795,31 +832,27 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('insertOperation', () => {
-            let repo: Repository<Book>
             let bridge: CaslBridge
-            let context: QueryContext
 
             beforeEach(() => {
-                repo = db.source.getRepository(BookSchema)
                 bridge = new CaslBridge(db.source, null)
                 const builder = repo.createQueryBuilder('__table__')
-                context = {
-                    parameter: 0,
-                    table: '__table__',
+                _.merge(context, {
                     join: builder.leftJoin.bind(builder),
-                    mongoQuery: null,
                     builder,
-                    aliases: ['__table__'],
-                    stack: [],
+                    columns: [
+                        { propertyName: 'id' } as any,
+                        { propertyName: 'title' } as any,
+                        {
+                            propertyName: 'author',
+                            relationMetadata: { type: 'Author' }
+                        } as any
+                    ],
                     currentState: {
                         builder,
-                        and: false,
                         where: builder.andWhere.bind(builder),
-                        aliasID: 0,
-                        column: '',
-                        repo,
                     }
-                }
+                })
             })
 
             it('should throw if operand isn\'t an object', () => {
@@ -828,49 +861,49 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should throw for invalid operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 expect(() => bridge['insertOperation'](context, '$invalid', 'value'))
                     .to.throw('Unknown operator $invalid')
             })
 
             it('should insert $eq operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$eq', 'A Book Title')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $ne operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$ne', 'A Book Title')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $gte operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$gte', 1)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $gt operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$gt', 1)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $lte operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$lte', 1)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $lt operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$lt', 1)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $not operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$not', { $eq: 1 })
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
@@ -883,145 +916,141 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should insert $is null operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$is', null)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $is true operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$is', true)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $is false operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$is', false)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $isNot null operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$isNot', null)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $isNot true operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$isNot', true)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $isNot false operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$isNot', false)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $in operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$in', [1, 2, 3])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notIn operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$notIn', [1, 2, 3])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $like operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$like', '%The Fox & The Hound%')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notLike operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$notLike', '%The Fox & The Hound%')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $iLike operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$iLike', '%The Fox & The Hound%')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notILike operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$notILike', '%The Fox & The Hound%')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $regex operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$regex', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $regexp operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$regexp', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notRegex operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$notRegex', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notRegexp operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$notRegexp', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $iRegexp operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$iRegexp', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notIRegexp operation', () => {
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$notIRegexp', '^The Fox')
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $between operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$between', [1, 10])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $notBetween operation', () => {
-                context.currentState.column = 'id'
+                context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$notBetween', [1, 10])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $and operation with object', () => {
-                context.currentState.column = ''
                 bridge['insertOperation'](context, '$and', { id: 1, title: 'The Book' })
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $and operation with array', () => {
-                context.currentState.column = ''
                 bridge['insertOperation'](context, '$and', [{ id: 1 }, { id: 1, title: 'The Book' }])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $or operation with object', () => {
-                context.currentState.column = ''
                 bridge['insertOperation'](context, '$or', { id: 1, title: 'The Book' })
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
             it('should insert $or operation with array', () => {
-                context.currentState.column = ''
                 bridge['insertOperation'](context, '$or', [{ id: 1 }, { id: 2, title: 'The Book' }])
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
@@ -1029,7 +1058,7 @@ describe('CaslTypeOrmQuery', () => {
             it('should insert $size operation', () => {
                 // NOTE: this operation is not supported by
                 //       MySQL, SQLite, or similar databases
-                context.currentState.column = 'title'
+                context.currentState.columnID = 1
                 bridge['insertOperation'](context, '$size', 10)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
@@ -1037,10 +1066,6 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('example queries', () => {
-        let repo: Repository<Book>
-
-        before(() => repo = db.source.getRepository(BookSchema))
-
         it('should read all books', async () => {
             const builder = new AbilityBuilder(createMongoAbility)
             builder.can('read', 'Book')
@@ -1051,6 +1076,7 @@ describe('CaslTypeOrmQuery', () => {
 
             const actualCount = await repo.count()
             const count = await query.getCount()
+            expect(query.getQuery()).toMatchSnapshot()
             expect(count).to.equal(actualCount)
         })
 
@@ -1065,6 +1091,19 @@ describe('CaslTypeOrmQuery', () => {
             const entries = await query.getMany()
 
             expect(entries.length).to.equal(2)
+        })
+
+        it('should read book IDs', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book', { id: 1 })
+            builder.can('read', 'Book', { id: 3 })
+            const ability = builder.build()
+
+            const bridge = new CaslBridge(db.source, ability)
+            const query = bridge.createQueryTo('read', 'Book', { id: true })
+            const entries = await query.getMany()
+
+            expect(entries).toMatchSnapshot()
         })
 
         it('should throw before malicious query can be executed', () => {

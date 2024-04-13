@@ -2,6 +2,19 @@
 
 exports[`CaslTypeOrmQuery createQuery should create a query that returns no results 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE 1 = 0"`;
 
+exports[`CaslTypeOrmQuery example queries should read all books 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table___author\\".\\"id\\" AS \\"__table___author_id\\", \\"__table___author\\".\\"name\\" AS \\"__table___author_name\\", \\"__table__\\".\\"authorId\\" FROM \\"book\\" \\"__table__\\" LEFT JOIN \\"author\\" \\"__table___author\\" ON \\"__table___author\\".\\"id\\"=\\"__table__\\".\\"authorId\\""`;
+
+exports[`CaslTypeOrmQuery example queries should read book IDs 1`] = `
+Array [
+  Book {
+    "id": 1,
+  },
+  Book {
+    "id": 3,
+  },
+]
+`;
+
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $and operation with array 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE ((\\"__table__\\".\\"id\\"  = :param_1) AND (\\"__table__\\".\\"id\\"  = :param_2 AND \\"__table__\\".\\"title\\"  = :param_3))"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $and operation with object 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE (\\"__table__\\".\\"id\\"  = :param_1 AND \\"__table__\\".\\"title\\"  = :param_2)"`;
@@ -98,8 +111,8 @@ Object {
 
 exports[`CaslTypeOrmQuery setup functions rulesToQuery should create for no access 1`] = `null`;
 
-exports[`CaslTypeOrmQuery setup functions selectField should not select field if none provided 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\""`;
+exports[`CaslTypeOrmQuery setup functions selectPrimaryField should not select field if none provided 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\""`;
 
-exports[`CaslTypeOrmQuery setup functions selectField should select a field 1`] = `"SELECT \\"__table__\\".\\"title\\" AS \\"__table___title\\" FROM \\"book\\" \\"__table__\\""`;
+exports[`CaslTypeOrmQuery setup functions selectPrimaryField should select a field 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\""`;
 
-exports[`CaslTypeOrmQuery setup functions selectField should select a relative field 1`] = `"SELECT \\"__table___author\\".\\"id\\" AS \\"__table___author_id\\", \\"__table___author\\".\\"name\\" AS \\"__table___author_name\\", \\"__table__\\".\\"authorId\\" FROM \\"book\\" \\"__table__\\" LEFT JOIN \\"author\\" \\"__table___author\\" ON \\"__table___author\\".\\"id\\"=\\"__table__\\".\\"authorId\\""`;
+exports[`CaslTypeOrmQuery setup functions selectPrimaryField should select a relative field 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" LEFT JOIN \\"author\\" \\"__table___author\\" ON \\"__table___author\\".\\"id\\"=\\"__table__\\".\\"authorId\\""`;

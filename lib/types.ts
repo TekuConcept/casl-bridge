@@ -14,6 +14,7 @@ import {
     SelectQueryBuilder,
     WhereExpressionBuilder
 } from 'typeorm'
+import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
 
 export type CaslRule = SubjectRawRule<
     string, ExtractSubjectType<Subject>, MongoQuery
@@ -63,6 +64,9 @@ export interface MongoQueryObject {
     '$size'?: number
 }
 
+export type Selected = boolean | SelectMap
+export interface SelectMap { [column: string]: Selected }
+
 export interface QueryState {
     builder: WhereExpressionBuilder
     and: boolean // is is andWhere or orWhere
@@ -71,8 +75,9 @@ export interface QueryState {
         parameters?: ObjectLiteral
     ) => WhereExpressionBuilder
     aliasID: number
-    column?: string
+    columnID?: number
     repo: Repository<any>
+    selectMap: Selected
 }
 
 export interface QueryContext {
@@ -88,8 +93,14 @@ export interface QueryContext {
     builder: SelectQueryBuilder<any>
     // the optional selected field
     field?: string
+    // map of fields to select (true/false or nested map)
+    selectMap: Selected
+    // list of selected fields
+    selected: Set<string>
     // the list of aliases created and validated
     aliases: string[]
+    // the list of validated columns
+    columns: ColumnMetadata[]
     // the bracketed query stack
     stack: QueryState[]
     // the current query state
@@ -104,8 +115,9 @@ export type ScopedCallback = (
 
 export interface ScopedOptions {
     aliasID?: number
+    columnID?: number
+    selectMap?: Selected
     repo?: Repository<any>
     and?: boolean
     not?: boolean
-    column?: string
 }
