@@ -68,6 +68,18 @@ const names = await bridge
     })
     .limit(3)
     .getMany()
+
+/* --------------------------------------
+ * add extra mongo-like query filters
+ */
+
+const names = await bridge
+    .createQueryTo('read', 'Book', {
+        title: true,
+        author: { name: true }
+    }, { id: { $ge: 10, $le: 20 } })
+    .limit(3)
+    .getMany()
 ```
 
 ### Database Setup
