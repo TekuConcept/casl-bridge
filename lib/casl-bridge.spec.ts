@@ -31,7 +31,6 @@ describe('CaslTypeOrmQuery', () => {
             join: null,
             selectMap: false,
             selected: new Set(),
-            mongoQuery: null,
             builder: null,
             aliases: ['__table__'],
             columns: [],
@@ -1080,7 +1079,7 @@ describe('CaslTypeOrmQuery', () => {
             expect(count).to.equal(actualCount)
         })
 
-        it('should read select books', async () => {
+        it('should read selected books', async () => {
             const builder = new AbilityBuilder(createMongoAbility)
             builder.can('read', 'Book', { id: 1 })
             builder.can('read', 'Book', { id: 3 })
@@ -1093,17 +1092,59 @@ describe('CaslTypeOrmQuery', () => {
             expect(entries.length).to.equal(2)
         })
 
-        it('should read book IDs', async () => {
+        it('should read book ID fields', async () => {
             const builder = new AbilityBuilder(createMongoAbility)
             builder.can('read', 'Book', { id: 1 })
             builder.can('read', 'Book', { id: 3 })
             const ability = builder.build()
 
+            // NOTE: equivalent to `can('read', 'Book', 'id')`
+            const bridge = new CaslBridge(db.source, ability)
+            const query = bridge.createQueryTo('read', 'Book', 'id')
+            const entries = await query.getMany()
+
+            expect(entries).to.deep.equal([
+                { id: 1 },
+                { id: 3 }
+            ])
+        })
+
+        it('should read selected book IDs', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book', { id: 1 })
+            builder.can('read', 'Book', { id: 3 })
+            const ability = builder.build()
+
+            // NOTE: equivalent to `can('read', 'Book')`
+            //       with only the ID field selected
             const bridge = new CaslBridge(db.source, ability)
             const query = bridge.createQueryTo('read', 'Book', { id: true })
             const entries = await query.getMany()
 
-            expect(entries).toMatchSnapshot()
+            expect(entries).to.deep.equal([
+                { id: 1 },
+                { id: 3 }
+            ])
+        })
+
+        it('should read books with query filters', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book', { id: 2 })
+            builder.can('read', 'Book', { id: 8 })
+            const ability = builder.build()
+
+            // NOTE: equivalent to `can('read', 'Book')`
+            //       with only the ID field selected, but
+            //       the id is constrained between 1 and 5
+            const bridge = new CaslBridge(db.source, ability)
+            const query = bridge.createQueryTo(
+                'read', 'Book', { id: true },
+                { id: { $gt: 1, $lt: 5 } }
+            )
+            const entries = await query.getMany()
+
+            expect(query.getQuery()).toMatchSnapshot()
+            expect(entries).to.deep.equal([{ id: 2 }])
         })
 
         it('should throw before malicious query can be executed', () => {

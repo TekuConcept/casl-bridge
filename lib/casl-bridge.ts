@@ -8,6 +8,7 @@ import {
 } from 'typeorm'
 import {
     CaslGate,
+    FilterObject,
     MongoFields,
     MongoQueryObject,
     QueryContext,
@@ -40,13 +41,39 @@ export class CaslBridge {
      *     their truthiness. Default is `true`.
      * 
      *     NOTE: The `field` parameter will override this setting.
+     * @param filters Any additional filters to include.
      * @returns The TypeORM query builder instance.
      */
     createQueryTo(
         action: string,
         subject: SubjectType,
         field: string,
-        selectMap?: Selected
+        selectMap: Selected,
+        filters: FilterObject
+    ): SelectQueryBuilder<any>;
+
+    /**
+     * Creates a new TypeORM query builder and sets up the query
+     * with respect to the CASL rules for the given action. It is
+     * the caller's responsibility to execute the query.
+     * 
+     * @param action The permissible action, eg `read`, `update`, etc.
+     * @param subject The subject type to query, eg `Book`, `Author`, etc.
+     * @param selectMap Whether to select fields. When `true`, all
+     *     fields are selected including relations. No fields are selected
+     *     when false. When an object, only the keys of the object
+     *     corresponding to column names are selected with respect to
+     *     their truthiness. Default is `true`.
+     * 
+     *     NOTE: The `field` parameter will override this setting.
+     * @param filters Any additional filters to include.
+     * @returns The TypeORM query builder instance.
+     */
+    createQueryTo(
+        action: string,
+        subject: SubjectType,
+        selectMap: Selected,
+        filters: FilterObject
     ): SelectQueryBuilder<any>;
 
     /**
@@ -78,18 +105,35 @@ export class CaslBridge {
      * 
      * @param action The permissible action, eg `read`, `update`, etc.
      * @param subject The subject type to query, eg `Book`, `Author`, etc.
+     * @param field The (optional) field to select. Default is all fields.
      * @returns The TypeORM query builder instance.
      */
     createQueryTo(
         action: string,
         subject: SubjectType,
+        field: string
+    ): SelectQueryBuilder<any>;
+
+    /**
+     * Creates a new TypeORM query builder and sets up the query
+     * with respect to the CASL rules for the given action. It is
+     * the caller's responsibility to execute the query.
+     * 
+     * @param action The permissible action, eg `read`, `update`, etc.
+     * @param subject The subject type to query, eg `Book`, `Author`, etc.
+     * @returns The TypeORM query builder instance.
+     */
+    createQueryTo(
+        action: string,
+        subject: SubjectType
     ): SelectQueryBuilder<any>;
 
     createQueryTo(
         action: string,
         subject: SubjectType,
         field?: string | Selected,
-        selectMap?: Selected
+        selectMap?: Selected | FilterObject,
+        filters?: FilterObject
     ): SelectQueryBuilder<any> {
         /**
          * ----------------------------------------------------------
@@ -108,14 +152,16 @@ export class CaslBridge {
         const repo = this.manager.getRepository(subject)
         const builder = repo.createQueryBuilder(table)
 
-        // handle collapsed parameters
-        if ((typeof field === 'object' ||
-            typeof field === 'boolean') &&
-            selectMap === undefined
-        ) {
-            selectMap = field
+        /**
+         * handle overload parameters
+         */
+
+        if ((typeof field === 'object' || typeof field === 'boolean')) {
+            filters = selectMap as FilterObject
+            selectMap = field as Selected
             field = undefined
         }
+
         if (selectMap === undefined) selectMap = true
 
         const mainstate: QueryState = {
@@ -124,7 +170,7 @@ export class CaslBridge {
             and: true,
             where: builder.andWhere.bind(builder),
             repo,
-            selectMap,
+            selectMap: selectMap as Selected,
         }
 
         const mongoQuery = this.rulesToQuery(
@@ -143,10 +189,9 @@ export class CaslBridge {
             parameter: 0,
             table,
             join: builder['leftJoin'].bind(builder),
-            mongoQuery,
             builder,
             field: field as string,
-            selectMap,
+            selectMap: selectMap as Selected,
             selected: new Set(),
             aliases: [table],
             columns: [],
@@ -157,7 +202,9 @@ export class CaslBridge {
         this.selectPrimaryField(context)
         if (Object.keys(mongoQuery).length === 0)
             this.selectAllImmediateFields(context)
-        else this.insertOperations(context, context.mongoQuery)
+        else this.insertOperations(context, mongoQuery)
+
+        if (filters) this.insertFilters(context, filters)
 
         builder.select(Array.from(context.selected))
 
@@ -250,6 +297,16 @@ export class CaslBridge {
                 repo: nextRepo,
                 selectMap: this.nextSelectMap(context, column)
             })
+        })
+    }
+
+    private insertFilters(
+        context: QueryContext,
+        filters: FilterObject
+    ) {
+        this.scopedInvoke(context, () => {
+            context.currentState.selectMap = false
+            this.insertObject(context, filters, 'no-column')
         })
     }
 

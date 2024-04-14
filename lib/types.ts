@@ -64,6 +64,8 @@ export interface MongoQueryObject {
     '$size'?: number
 }
 
+export type FilterObject = MongoFields | MongoQueryObject
+
 export type Selected = boolean | SelectMap
 export interface SelectMap { [column: string]: Selected }
 
@@ -87,8 +89,6 @@ export interface QueryContext {
     table: string
     // the join function (left-join only or left-join-and-select)
     join: (...args: any[]) => any
-    // the full mongodb query object
-    mongoQuery: MongoQueryObject
     // the top-level query builder
     builder: SelectQueryBuilder<any>
     // the optional selected field

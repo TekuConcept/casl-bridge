@@ -4,16 +4,7 @@ exports[`CaslTypeOrmQuery createQuery should create a query that returns no resu
 
 exports[`CaslTypeOrmQuery example queries should read all books 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table___author\\".\\"id\\" AS \\"__table___author_id\\", \\"__table___author\\".\\"name\\" AS \\"__table___author_name\\", \\"__table__\\".\\"authorId\\" FROM \\"book\\" \\"__table__\\" LEFT JOIN \\"author\\" \\"__table___author\\" ON \\"__table___author\\".\\"id\\"=\\"__table__\\".\\"authorId\\""`;
 
-exports[`CaslTypeOrmQuery example queries should read book IDs 1`] = `
-Array [
-  Book {
-    "id": 1,
-  },
-  Book {
-    "id": 3,
-  },
-]
-`;
+exports[`CaslTypeOrmQuery example queries should read books with query filters 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\" FROM \\"book\\" \\"__table__\\" WHERE ((\\"__table__\\".\\"id\\"  = :param_1) OR (\\"__table__\\".\\"id\\"  = :param_2)) AND (\\"__table__\\".\\"id\\"  > :param_3 AND \\"__table__\\".\\"id\\"  < :param_4)"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $and operation with array 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE ((\\"__table__\\".\\"id\\"  = :param_1) AND (\\"__table__\\".\\"id\\"  = :param_2 AND \\"__table__\\".\\"title\\"  = :param_3))"`;
 
