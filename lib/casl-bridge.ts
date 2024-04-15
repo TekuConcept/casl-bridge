@@ -304,11 +304,15 @@ export class CaslBridge {
         context: QueryContext,
         filters: FilterObject
     ) {
-        // prevent erroneous column selection
+        // -- reset --
+        const { builder } = context
+        context.currentState.aliasID = 0
+        context.currentState.and = true
+        context.currentState.where = builder.andWhere.bind(builder)
+        context.currentState.selectMap = false
         delete context.currentState.columnID
 
         this.scopedInvoke(context, () => {
-            context.currentState.selectMap = false
             this.insertObject(context, filters, 'no-column')
         })
     }
