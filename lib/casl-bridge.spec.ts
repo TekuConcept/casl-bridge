@@ -9,7 +9,13 @@ import {
     createMongoAbility
 } from '@casl/ability'
 import { Repository } from 'typeorm'
-import { CaslGate, MongoFields, QueryContext } from './types'
+import {
+    CaslGate,
+    InternalQueryOptions,
+    MongoFields,
+    QueryContext,
+    QueryOptions
+} from './types'
 
 describe('CaslTypeOrmQuery', () => {
     let db: TestDatabase
@@ -78,6 +84,207 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('setup functions', () => {
+        describe('checkOptions', () => {
+            let bridge: CaslBridge
+            let options: InternalQueryOptions
+
+            beforeEach(() => {
+                bridge = new CaslBridge(db.source, null)
+                options = {
+                    table: undefined,
+                    action: undefined,
+                    subject: 'Book',
+                    field: undefined,
+                    select: undefined,
+                    filters: undefined,
+                    selectAll: false,
+                    selectMap: true,
+                }
+            })
+
+            it('should throw if no subject provided', () => {
+                delete options.subject
+                expect(() => bridge['getOptions'](options)).to.throw()
+            })
+
+            it('should throw if table name is invalid', () => {
+                options.table = '; DROP TABLE book; --'
+                expect(() => bridge['checkOptions'](options))
+                    .to.throw('Invalid table name: ; DROP TABLE book; --')
+            })
+
+            it('should select all for "*" select', () => {
+                options.select = '*'
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.true
+                expect(options.select).to.be.true
+            })
+
+            it('should treat boolean select as-is', () => {
+                options.select = true
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.false
+                expect(options.select).to.be.true
+            })
+
+            it('should treat undefined select as true', () => {
+                delete options.select
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.false
+                expect(options.select).to.be.true
+            })
+
+            it('should treat null select as false', () => {
+                options.select = null
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.false
+                expect(options.select).to.be.false
+            })
+
+            it('should treat object select as-is', () => {
+                options.select = { title: true }
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.false
+                expect(options.select).to.deep.equal({ title: true })
+            })
+
+            it('should treat all other select types as truthy', () => {
+                options.select = 42 as any
+                bridge['checkOptions'](options)
+                expect(options.selectAll).to.be.false
+                expect(options.select).to.be.true
+            })
+
+            it('should treat non-object filters as undefined', () => {
+                options.filters = 42 as any
+                bridge['checkOptions'](options)
+                expect(options.filters).to.be.undefined
+            })
+
+            it('should treat null filters as undefined', () => {
+                options.filters = null
+                bridge['checkOptions'](options)
+                expect(options.filters).to.be.undefined
+            })
+
+            it('should treat non-string field as undefined', () => {
+                options.field = 42 as any
+                bridge['checkOptions'](options)
+                expect(options.field).to.be.undefined
+            })
+        })
+
+        describe('getOptions', () => {
+            let bridge: CaslBridge
+            let expected: InternalQueryOptions
+
+            beforeEach(() => {
+                bridge = new CaslBridge(db.source, null)
+                expected = {
+                    table: '__table__',
+                    action: 'manage',
+                    subject: 'Book',
+                    field: undefined,
+                    filters: undefined,
+                    select: true,
+                    selectAll: false,
+                    selectMap: true,
+                }
+            })
+
+            it('should merge options object', () => {
+                const nextOptions: QueryOptions = { subject: 'Book' }
+                const merged = bridge['getOptions'](nextOptions)
+
+                expected.subject = 'Book'
+                expect(merged).to.deep.equal(expected)
+            })
+
+            it('should use managed action for null', () => {
+                const merged = bridge['getOptions'](null, 'Book')
+
+                expected.subject = 'Book'
+                expected.action = 'manage'
+                expect(merged).to.deep.equal(expected)
+            })
+
+            it('should use action as-is', () => {
+                const merged = bridge['getOptions']('read', 'Book')
+
+                expected.subject = 'Book'
+                expected.action = 'read'
+                expect(merged).to.deep.equal(expected)
+            })
+
+            it('should shift args if field is ommitted', () => {
+                const merged = bridge['getOptions'](
+                    'read',
+                    'Book',
+                    { title: true },
+                    { id: { $ge: 1 } }
+                )
+
+                expected.subject = 'Book'
+                expected.action = 'read'
+                expected.select = { title: true }
+                expected.filters = { id: { $ge: 1 } }
+                expect(merged).to.deep.equal(expected)
+            })
+
+            it('should handle null field', () => {
+                const merged = bridge['getOptions'](
+                    'read',
+                    'Book',
+                    null,
+                    { title: true }
+                )
+
+                expected.subject = 'Book'
+                expected.action = 'read'
+                expected.select = { title: true }
+                expected.field = undefined
+                expect(merged).to.deep.equal(expected)
+            })
+
+            it('should convert "*" field to select all', () => {
+                const merged = bridge['getOptions'](
+                    'read',
+                    'Book',
+                    '*',
+                    { title: true }
+                )
+
+                expected.subject = 'Book'
+                expected.action = 'read'
+                expected.field = undefined
+                expected.selectAll = true
+                expected.select = true
+                expect(merged).to.deep.equal(expected)
+            })
+        })
+
+        describe('selectAll', () => {
+            it('should select all fields', () => {
+                const bridge = new CaslBridge(db.source, null)
+                const selected = bridge['selectAll'](repo)
+                expect(selected).to.deep.equal([
+                    'id',
+                    'title',
+                    'author',
+                ])
+            })
+
+            it('should select all fields with a prefix', () => {
+                const bridge = new CaslBridge(db.source, null)
+                const selected = bridge['selectAll'](repo, 'table')
+                expect(selected).to.deep.equal([
+                    'table.id',
+                    'table.title',
+                    'table.author',
+                ])
+            })
+        })
+
         describe('selectPrimaryField', () => {
             let bridge: CaslBridge
 
@@ -1145,6 +1352,69 @@ describe('CaslTypeOrmQuery', () => {
 
             expect(query.getQuery()).toMatchSnapshot()
             expect(entries).to.deep.equal([{ id: 2 }])
+        })
+
+        it('should select all columns regardless of ability', async () => {
+            /**
+             * NOTE: Ability is only used as a filter for entries in
+             *       this case and will not omit columns with respect
+             *       to the rules.
+             * 
+             * If the rules are setup to permit "reading all"
+             * (with no column conditions), then all columns
+             * will automatically be selected.
+             */
+
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book', { id: 1 })
+            const ability = builder.build()
+            const bridge = new CaslBridge(db.source, ability)
+
+            const query1 = bridge.createQueryTo('read', 'Book')
+            const entry1 = await query1.getOne()
+
+            /**
+             * Notice that a column condition is set for the
+             * ability, so only the conditional columns are
+             * selected. `title` is not part of the conditions.
+             */
+
+            expect(entry1.id).to.equal(1)
+            expect(entry1.title).to.be.undefined
+
+            /**
+             * If we need all columns regardless of the ability,
+             * we simply add a wildcard to the selection.
+             */
+
+            const query2 = bridge.createQueryTo('read', 'Book', '*')
+            const entry2 = await query2.getOne()
+
+            expect(entry2.id).to.equal(1)
+            expect(entry2.title).to.not.be.undefined
+
+            /**
+             * Alternatively, set the table alias and use
+             * `addSelect` to add selected columns of your own.
+             * 
+             * NOTE: Aliases take the form of `${table}_${column},
+             *       so for embedded columns, the alias will be
+             *       `${table}_${embedded}_${column}`.
+             * 
+             * For example: `Book_author_name`
+             */
+
+            const query3 = bridge
+                .createQueryTo({
+                    table: 'Book',
+                    action: 'read',
+                    subject: 'Book',
+                })
+                .addSelect(['Book.title'])
+            const entry3 = await query3.getOne()
+
+            expect(entry3.id).to.equal(1)
+            expect(entry3.title).to.not.be.undefined
         })
 
         it('should throw before malicious query can be executed', () => {

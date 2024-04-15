@@ -66,8 +66,94 @@ export interface MongoQueryObject {
 
 export type FilterObject = MongoFields | MongoQueryObject
 
-export type Selected = boolean | SelectMap
+export type Selected = SelectMap | boolean | '*'
 export interface SelectMap { [column: string]: Selected }
+
+/**
+ * The validation method to use when validating column names.
+ */
+export enum ColumnValidationMethod {
+    /**
+     * Validate column names with respect to repo schema. (default)
+     */
+    Table = 'Table',
+    // TODO: Can these be implemented without repo dependency?
+    // /**
+    //  * Validate column names with respect to a
+    //  * provided array of nested `columnNames`.
+    //  */
+    // Static = 'Static',
+    // /**
+    //  * Validate column names with respect to the general SQL
+    //  * grammar rules. This is the least restrictive and should
+    //  * be used with caution.
+    //  * 
+    //  * The match pattern is:
+    //  * ```
+    //  * /^[a-zA-Z_][a-zA-Z0-9_]*$/
+    //  * ```
+    //  */
+    // Grammar = 'Grammar',
+}
+
+export interface QueryOptions {
+    /**
+     * Table alias to use in the query.
+     * Defaults to `__table__`.
+     */
+    table?: string,
+    /**
+     * The action to check against the CASL rules.
+     * eg `create`, `read`, `update`, etc.
+     * 
+     * Defaults to `manage`.
+     */
+    action?: string,
+    /**
+     * The subject to check against the CASL rules.
+     * This can be a string, class instance, or other supported type.
+     */
+    subject: Subject,
+    /**
+     * An optional field to check against the CASL rules.
+     */
+    field?: string,
+    /**
+     * Selects the fields to include in the query result.
+     * - `true` - includes all fields marked by CASL rules
+     * - `'*'`  - includes all fields regardless of rules
+     *            including any joined tables.
+     *            NOTE: This does not auto-join tables.
+     * - `SelectMap` - an object in the form of:
+     *                 `{ field: true | SelectMap }`
+     */
+    select?: Selected,
+    /**
+     * Additional filters to apply to the query. Object
+     * takes the form of a Mongo-style query object.
+     * 
+     * For example:
+     * 
+     * ```json
+     * {
+     *    "id": { "$ge": 1, "$lt": 10 },
+     *    "field": "value"
+     * }
+     * ```
+     */
+    filters?: FilterObject,
+    // /**
+    //  * The validation method to use when validating column names.
+    //  * Default is validation with respect to `Table` schemas.
+    //  */
+    // validation?: ColumnValidationMethod | (keyof typeof ColumnValidationMethod),
+}
+
+export interface InternalQueryOptions extends QueryOptions {
+    selectAll: boolean
+    selectMap: Selected
+    subject: string // help with type checking
+}
 
 export interface QueryState {
     builder: WhereExpressionBuilder

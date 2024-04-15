@@ -9,9 +9,11 @@ import {
 import {
     CaslGate,
     FilterObject,
+    InternalQueryOptions,
     MongoFields,
     MongoQueryObject,
     QueryContext,
+    QueryOptions,
     QueryState,
     ScopedCallback,
     ScopedOptions,
@@ -128,12 +130,20 @@ export class CaslBridge {
         subject: SubjectType
     ): SelectQueryBuilder<any>;
 
+    /**
+     * Creates a new TypeORM query builder and sets up the query
+     * with respect to the CASL rules for the given action. It is
+     * the caller's responsibility to execute the query.
+     * 
+     * @param options Options to use for this query.
+     * @returns The TypeORM query builder instance.
+     */
     createQueryTo(
-        action: string,
-        subject: SubjectType,
-        field?: string | Selected,
-        selectMap?: Selected | FilterObject,
-        filters?: FilterObject
+        options: QueryOptions
+    ): SelectQueryBuilder<any>;
+
+    createQueryTo(
+        ...args: any[]
     ): SelectQueryBuilder<any> {
         /**
          * ----------------------------------------------------------
@@ -148,36 +158,17 @@ export class CaslBridge {
          * - Use a whitelist of allowed columns! eg `isColumnKey()`
          * ----------------------------------------------------------
          */
-        const table = '__table__'
-        const repo = this.manager.getRepository(subject)
+        const options = this.getOptions(...args)
+
+        const { table } = options
+        const repo = this.manager.getRepository(options.subject)
         const builder = repo.createQueryBuilder(table)
-
-        /**
-         * handle overload parameters
-         */
-
-        if ((typeof field === 'object' || typeof field === 'boolean')) {
-            filters = selectMap as FilterObject
-            selectMap = field as Selected
-            field = undefined
-        }
-
-        if (selectMap === undefined) selectMap = true
-
-        const mainstate: QueryState = {
-            builder,
-            aliasID: 0,
-            and: true,
-            where: builder.andWhere.bind(builder),
-            repo,
-            selectMap: selectMap as Selected,
-        }
 
         const mongoQuery = this.rulesToQuery(
             this.casl,
-            action,
-            subject,
-            field as string
+            options.action,
+            options.subject,
+            options.field
         )
 
         if (!mongoQuery) {
@@ -185,13 +176,26 @@ export class CaslBridge {
             return builder
         }
 
+        const mainstate: QueryState = {
+            builder,
+            aliasID: 0,
+            and: true,
+            where: builder.andWhere.bind(builder),
+            repo,
+            selectMap: options.select,
+        }
+
+        const join = options.selectAll
+            ? builder['leftJoinAndSelect']
+            : builder['leftJoin']
+
         const context: QueryContext = {
             parameter: 0,
             table,
-            join: builder['leftJoin'].bind(builder),
+            join: join.bind(builder),
             builder,
-            field: field as string,
-            selectMap: selectMap as Selected,
+            field: options.field,
+            selectMap: options.select,
             selected: new Set(),
             aliases: [table],
             columns: [],
@@ -204,11 +208,104 @@ export class CaslBridge {
             this.selectAllImmediateFields(context)
         else this.insertOperations(context, mongoQuery)
 
-        if (filters) this.insertFilters(context, filters)
+        if (options.filters)
+            this.insertFilters(context, options.filters)
 
-        builder.select(Array.from(context.selected))
+        if (options.selectAll || context.selected.size === 0) {
+            const selected = this.selectAll(repo, table)
+            selected.forEach(entry => context.selected.add(entry))
+            builder.addSelect(Array.from(context.selected))
+        } else builder.select(Array.from(context.selected))
 
         return builder
+    }
+
+    /**
+     * Makes sure the options are valid and normalized.
+     */
+    private checkOptions(options: InternalQueryOptions) {
+        if (!options.subject)
+            throw new Error('Subject type is required')
+
+        // For now, parameterized table names are not allowed.
+        // Names must be alphanumeric with underscores only.
+        const regex = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+        if (!regex.test(options.table))
+            throw new Error(`Invalid table name: ${options.table}`)
+
+        if (options.select === '*') {
+            options.selectAll = true
+            options.select    = true
+        }
+
+        switch (typeof options.select) {
+        case 'boolean': break
+        case 'object':
+            if (options.select === null)
+                options.select = false
+            break
+        case 'undefined': options.select = true; break
+        default: options.select = !!options.select; break
+        }
+
+        if (typeof options.filters !== 'object' ||
+            options.filters === null)
+            options.filters = undefined
+
+        if (typeof options.field !== 'string')
+            options.field = undefined
+
+        return options
+    }
+
+    private getOptions(...args: any[]): InternalQueryOptions {
+        let options = {
+            table: '__table__',
+            action: 'manage',
+            subject: '',
+            field: undefined,
+            selectMap: true,
+            selectAll: false,
+            select: true,
+            filters: undefined
+        }
+
+        if (typeof args[0] === 'object' && args[0] !== null) {
+            options = Object.assign(options, args[0])
+            return this.checkOptions(options)
+        }
+
+        options.action  = args[0] ?? 'manage'
+        options.subject = args[1]
+
+        if (typeof args[2] === 'object' && args[2] !== null) {
+            options.select  = args[2]
+            options.filters = args[3]
+        } else {
+            options.field   = args[2]
+            options.select  = args[3]
+            options.filters = args[4]
+
+            if (options.field === '*') {
+                options.selectAll = true
+                options.select    = true
+                options.field     = undefined
+            }
+        }
+
+        return this.checkOptions(options)
+    }
+
+    private selectAll<T extends object>(
+        repository: Repository<T>,
+        prefix?: string
+    ) {
+        return repository.metadata.columns.map(
+            col => {
+                if (prefix) return `${prefix}.${col.propertyName}`
+                return col.propertyName
+            }
+        )
     }
 
     private selectPrimaryField(context: QueryContext) {
@@ -362,12 +459,10 @@ export class CaslBridge {
      * This will throw an error if the specified column
      * does not exist in the given repository's table.
      * 
-     * Override this function for more strict checks.
-     * 
      * @param column The column key to check.
      * @returns The column metadata if valid.
      */
-    protected checkColumn(
+    private checkColumn(
         column: string,
         repo: Repository<any>
     ) {
