@@ -98,7 +98,6 @@ describe('CaslTypeOrmQuery', () => {
                     select: undefined,
                     filters: undefined,
                     selectAll: false,
-                    selectMap: true,
                 }
             })
 
@@ -188,7 +187,6 @@ describe('CaslTypeOrmQuery', () => {
                     filters: undefined,
                     select: true,
                     selectAll: false,
-                    selectMap: true,
                 }
             })
 
@@ -251,7 +249,7 @@ describe('CaslTypeOrmQuery', () => {
                     'read',
                     'Book',
                     '*',
-                    { title: true }
+                    { id: { $ge: 1 } }
                 )
 
                 expected.subject = 'Book'
@@ -259,6 +257,7 @@ describe('CaslTypeOrmQuery', () => {
                 expected.field = undefined
                 expected.selectAll = true
                 expected.select = true
+                expected.filters = { id: { $ge: 1 } }
                 expect(merged).to.deep.equal(expected)
             })
         })

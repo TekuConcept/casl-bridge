@@ -264,7 +264,6 @@ export class CaslBridge {
             action: 'manage',
             subject: '',
             field: undefined,
-            selectMap: true,
             selectAll: false,
             select: true,
             filters: undefined
@@ -278,19 +277,15 @@ export class CaslBridge {
         options.action  = args[0] ?? 'manage'
         options.subject = args[1]
 
-        if (typeof args[2] === 'object' && args[2] !== null) {
+        if ((typeof args[2] === 'object' && args[2] !== null) ||
+            typeof args[2] === 'boolean' || args[2] === '*'
+        ) {
             options.select  = args[2]
             options.filters = args[3]
         } else {
             options.field   = args[2]
             options.select  = args[3]
             options.filters = args[4]
-
-            if (options.field === '*') {
-                options.selectAll = true
-                options.select    = true
-                options.field     = undefined
-            }
         }
 
         return this.checkOptions(options)

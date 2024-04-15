@@ -151,7 +151,6 @@ export interface QueryOptions {
 
 export interface InternalQueryOptions extends QueryOptions {
     selectAll: boolean
-    selectMap: Selected
     subject: string // help with type checking
 }
 
