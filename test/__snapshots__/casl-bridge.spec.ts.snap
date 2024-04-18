@@ -6,6 +6,8 @@ exports[`CaslTypeOrmQuery example queries should read all books 1`] = `"SELECT \
 
 exports[`CaslTypeOrmQuery example queries should read books with query filters 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\" FROM \\"book\\" \\"__table__\\" WHERE ((\\"__table__\\".\\"id\\"  = :param_1) OR (\\"__table__\\".\\"id\\"  = :param_2)) AND (\\"__table__\\".\\"id\\"  > :param_3 AND \\"__table__\\".\\"id\\"  < :param_4)"`;
 
+exports[`CaslTypeOrmQuery example queries should read sketchy columns 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"Today's Message\\" AS \\"__table___Today's Message\\", \\"__table__\\".\\"$recycle$\\" AS \\"__table___$recycle$\\", \\"__table__\\".\\"id\\"\\" > 0 OR 1=1; --\\" AS \\"__table___id\\"\\" > 0 OR 1=1; --\\", \\"__table__\\".\\"🤔\\" AS \\"__table___🤔\\", \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"id\\", __table__.\\"Today's Message\\", __table__.\\"$recycle$\\", __table__.\\"id\\"\\" > 0 OR 1=1; --\\", __table__.\\"🤔\\" FROM \\"sketchy\\" \\"__table__\\" WHERE (__table__.\\"$recycle$\\"  = :param_0 AND __table__.\\"id\\"\\" > 0 OR 1=1; --\\" IS NOT NULL AND __table__.\\"🤔\\" >= :param_2 AND __table__.\\"🤔\\" <= :param_3)"`;
+
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $and operation with array 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE ((\\"__table__\\".\\"id\\"  = :param_1) AND (\\"__table__\\".\\"id\\"  = :param_2 AND \\"__table__\\".\\"title\\"  = :param_3))"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $and operation with object 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE (\\"__table__\\".\\"id\\"  = :param_1 AND \\"__table__\\".\\"title\\"  = :param_2)"`;
@@ -13,6 +15,8 @@ exports[`CaslTypeOrmQuery query builder functions insertOperation should insert 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $between operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"id\\" BETWEEN     :aparam_0 AND :bparam_0"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $eq operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"title\\"  = :param_0"`;
+
+exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $ge operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"id\\" >= :param_0"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $gt operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"id\\"  > :param_0"`;
 
@@ -35,6 +39,8 @@ exports[`CaslTypeOrmQuery query builder functions insertOperation should insert 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $isNot null operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"title\\" IS NOT NULL"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $isNot true operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"title\\" IS NOT TRUE"`;
+
+exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $le operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"id\\" <= :param_0"`;
 
 exports[`CaslTypeOrmQuery query builder functions insertOperation should insert $like operation 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" WHERE \\"__table__\\".\\"title\\" LIKE        :param_0"`;
 
@@ -101,9 +107,3 @@ Object {
 `;
 
 exports[`CaslTypeOrmQuery setup functions rulesToQuery should create for no access 1`] = `null`;
-
-exports[`CaslTypeOrmQuery setup functions selectPrimaryField should not select field if none provided 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\""`;
-
-exports[`CaslTypeOrmQuery setup functions selectPrimaryField should select a field 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\""`;
-
-exports[`CaslTypeOrmQuery setup functions selectPrimaryField should select a relative field 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\", \\"__table__\\".\\"authorId\\" AS \\"__table___authorId\\" FROM \\"book\\" \\"__table__\\" LEFT JOIN \\"author\\" \\"__table___author\\" ON \\"__table___author\\".\\"id\\"=\\"__table__\\".\\"authorId\\""`;

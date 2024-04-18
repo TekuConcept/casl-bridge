@@ -32,8 +32,13 @@ describe('CaslTypeOrmQuery', () => {
 
     beforeEach(() => {
         context = {
+            options: {
+                table: '__table__',
+                subject: '',
+                selectAll: false,
+                strict: true,
+            },
             parameter: 0,
-            table: '__table__',
             join: null,
             selectMap: false,
             selected: new Set(),
@@ -79,7 +84,7 @@ describe('CaslTypeOrmQuery', () => {
         it('should maintain table alias name', () => {
             bridge.createQueryTo('read', 'Book', 'id')
             expect(insertOperations.calledOnce).to.be.true
-            expect(insertOperations.args[0][0].table).to.equal('__table__')
+            expect(insertOperations.args[0][0].options.table).to.equal('__table__')
         })
     })
 
@@ -98,6 +103,7 @@ describe('CaslTypeOrmQuery', () => {
                     select: undefined,
                     filters: undefined,
                     selectAll: false,
+                    strict: true,
                 }
             })
 
@@ -171,6 +177,12 @@ describe('CaslTypeOrmQuery', () => {
                 bridge['checkOptions'](options)
                 expect(options.field).to.be.undefined
             })
+
+            it('should assign non-boolean strict as global strict', () => {
+                options.strict = 42 as any
+                bridge['checkOptions'](options)
+                expect(options.strict).to.be.true // default
+            })
         })
 
         describe('getOptions', () => {
@@ -187,6 +199,7 @@ describe('CaslTypeOrmQuery', () => {
                     filters: undefined,
                     select: true,
                     selectAll: false,
+                    strict: true,
                 }
             })
 
@@ -263,8 +276,11 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('selectAll', () => {
+            let bridge: CaslBridge
+
+            before(() => bridge = new CaslBridge(db.source, null))
+
             it('should select all fields', () => {
-                const bridge = new CaslBridge(db.source, null)
                 const selected = bridge['selectAll'](repo)
                 expect(selected).to.deep.equal([
                     'id',
@@ -274,12 +290,36 @@ describe('CaslTypeOrmQuery', () => {
             })
 
             it('should select all fields with a prefix', () => {
-                const bridge = new CaslBridge(db.source, null)
                 const selected = bridge['selectAll'](repo, 'table')
                 expect(selected).to.deep.equal([
                     'table.id',
                     'table.title',
                     'table.author',
+                ])
+            })
+
+            it('should drop fields in strict mode', () => {
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                const selected = bridge['selectAll'](sketchyRepo)
+                expect(selected).to.deep.equal(['id'])
+            })
+
+            it('should include all fields in non-strict mode', () => {
+                const strict = true
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                const selected = bridge['selectAll'](
+                    sketchyRepo,
+                    undefined,
+                    !strict
+                )
+
+                // NOTE: better-sqlite3 (used for these tests) uses double quotes
+                expect(selected).to.deep.equal([
+                    'id',
+                    '"Today\'s Message"',
+                    '"$recycle$"',
+                    '"id"" > 0 OR 1=1; --"',
+                    '"🤔"',
                 ])
             })
         })
@@ -302,24 +342,57 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should not select field if none provided', () => {
                 bridge['selectPrimaryField'](context)
-                expect(context.builder.getQuery()).toMatchSnapshot()
+                const selected = Array.from(context.selected)
+                expect(selected).to.deep.equal([])
             })
 
             it('should throw if field is invalid', () => {
-                context.field = '; DROP TABLE book; --'
+                context.options.field = 'id OR 1=1; --'
+                expect(() => bridge['selectPrimaryField'](context)).to.throw()
+            })
+
+            it('should throw if field not allowed in strict mode', () => {
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                context.options.field = 'Today\'s Message'
+                context.currentState.repo = sketchyRepo
                 expect(() => bridge['selectPrimaryField'](context)).to.throw()
             })
 
             it('should select a field', () => {
-                context.field = 'title'
+                context.options.field = 'title'
                 bridge['selectPrimaryField'](context)
-                expect(context.builder.getQuery()).toMatchSnapshot()
+                const selected = Array.from(context.selected)
+                expect(selected).to.deep.equal(['__table__.title'])
+            })
+
+            it('should select a field in non-strict mode', () => {
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                context.options.field = 'Today\'s Message'
+                context.options.strict = false
+
+                // -- query setup --
+                context.builder = sketchyRepo.createQueryBuilder('__table__')
+                context.join = context.builder.leftJoin.bind(context.builder)
+                context.currentState.builder = context.builder
+                context.currentState.where = context.builder.andWhere.bind(context.builder)
+                context.currentState.repo = sketchyRepo
+                // -- end query setup --
+
+                // NOTE: better-sqlite3 (used for these tests) uses double quotes
+                bridge['selectPrimaryField'](context)
+                const selected = Array.from(context.selected)
+                expect(selected).to.deep.equal(['__table__."Today\'s Message"'])
             })
 
             it('should select a relative field', () => {
-                context.field = 'author'
+                context.options.field = 'author'
                 bridge['selectPrimaryField'](context)
-                expect(context.builder.getQuery()).toMatchSnapshot()
+                const selected = Array.from(context.selected)
+                expect(selected).to.deep.equal([
+                    '__table__.author',
+                    '__table___author.id',
+                    '__table___author.name',
+                ])
                 expect(context.aliases).to.deep.equal([
                     '__table__',
                     '__table___author'
@@ -328,9 +401,11 @@ describe('CaslTypeOrmQuery', () => {
         })
 
         describe('selectAllImmediateFields', () => {
-            it('should select all immediate fields', () => {
-                const bridge = new CaslBridge(db.source, null)
+            let bridge: CaslBridge
 
+            before(() => bridge = new CaslBridge(db.source, null))
+
+            it('should select all immediate fields', () => {
                 const builder = repo.createQueryBuilder('__table__')
                 context.join = builder.leftJoin.bind(builder)
                 context.currentState.where = builder.andWhere.bind(builder)
@@ -346,6 +421,71 @@ describe('CaslTypeOrmQuery', () => {
                     '__table___author.name',
                 ])
             })
+
+            it('should drop fields in strict mode', () => {
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                const builder = sketchyRepo.createQueryBuilder('__table__')
+                context.join = builder.leftJoin.bind(builder)
+                context.currentState.where = builder.andWhere.bind(builder)
+                context.currentState.selectMap = true
+                context.currentState.repo = sketchyRepo
+
+                bridge['selectAllImmediateFields'](context)
+
+                expect(Array.from(context.selected)).to.deep.equal([
+                    '__table__.id',
+                ])
+            })
+
+            it('should drop embedded fields in strict mode', () => {
+                // pretend the author table has "relaxed" fields
+                const getInfoFromColumnMetadata = sinon.stub(bridge, <any>'getInfoFromColumnMetadata')
+
+                getInfoFromColumnMetadata.callsFake((_repo, metadata: any, strict) => {
+                    const workingName = metadata.propertyName
+                    if (strict && workingName === 'name') return null
+                    return { workingName, metadata }
+                })
+
+                const builder = repo.createQueryBuilder('__table__')
+                context.join = builder.leftJoin.bind(builder)
+                context.currentState.where = builder.andWhere.bind(builder)
+                context.currentState.selectMap = true
+
+                bridge['selectAllImmediateFields'](context)
+
+                expect(Array.from(context.selected)).to.deep.equal([
+                    '__table__.id',
+                    '__table__.title',
+                    '__table__.author',
+                    '__table___author.id',
+                    // name is dropped
+                ])
+
+                getInfoFromColumnMetadata.restore()
+            })
+
+            it('should include fields in non-strict mode', () => {
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                const builder = sketchyRepo.createQueryBuilder('__table__')
+                context.join = builder.leftJoin.bind(builder)
+                context.currentState.where = builder.andWhere.bind(builder)
+                context.currentState.selectMap = true
+                context.currentState.repo = sketchyRepo
+                context.options.strict = false
+
+                bridge['selectAllImmediateFields'](context)
+
+                expect(Array.from(context.selected)).to.deep.equal([
+                    '__table__.id',
+                    "__table__.\"Today's Message\"",
+                    "__table__.\"$recycle$\"",
+                    "__table__.\"id\"\" > 0 OR 1=1; --\"",
+                    "__table__.\"🤔\""
+                ])
+            })
+
+            // NOTE: aliases are encoded in `createAliasFrom`
         })
 
         describe('rulesToQuery', () => {
@@ -387,24 +527,81 @@ describe('CaslTypeOrmQuery', () => {
     })
 
     describe('access functions', () => {
+        describe('getInfoFromColumnMetadata', () => {
+            const strict = true
+            let sketchyRepo: Repository<any>
+
+            before(() => sketchyRepo = db.source.getRepository('Sketchy'))
+
+            it('should return info if simple column', () => {
+                const bridge = new CaslBridge(db.source, null)
+                const metadata = sketchyRepo.metadata.columns
+                    .find(c => c.propertyName === 'id')
+                const info = bridge['getInfoFromColumnMetadata'](
+                    repo, metadata, strict)
+
+                expect(info.workingName).to.equal('id')
+                expect(info.metadata).to.equal(metadata)
+            })
+
+            it('should return null if not simple and strict', () => {
+                const bridge = new CaslBridge(db.source, null)
+                const metadata = sketchyRepo.metadata.columns
+                    .find(c => c.propertyName === 'Today\'s Message')
+                const info = bridge['getInfoFromColumnMetadata'](
+                    sketchyRepo, metadata, strict)
+
+                expect(info).to.be.null
+            })
+
+            it('should return info with quoted name if not simple', () => {
+                const bridge = new CaslBridge(db.source, null)
+                const metadata = sketchyRepo.metadata.columns
+                    .find(c => c.propertyName === 'id"" > 0 OR 1=1; --')
+                const info = bridge['getInfoFromColumnMetadata'](
+                    sketchyRepo, metadata, !strict)
+
+                // NOTE: better-sqlite3 (used for these tests) uses double quotes
+                expect(info.workingName).to.equal('"id"" > 0 OR 1=1; --"')
+                expect(info.metadata).to.equal(metadata)
+            })
+        })
+
         describe('checkColumn', () => {
             it('should throw if column is null or empty', () => {
                 const bridge = new CaslBridge(null, null)
-                expect(() => bridge['checkColumn'](null, repo)).to.throw()
-                expect(() => bridge['checkColumn']('', repo)).to.throw()
+                expect(() => bridge['checkColumn'](null, repo, true)).to.throw()
+                expect(() => bridge['checkColumn']('', repo, true)).to.throw()
             })
 
             it('should throw if column is not a valid column key', () => {
                 const bridge = new CaslBridge(null, null)
                 const sqlinjection = "id; DROP TABLE book; --"
-                expect(() => bridge['checkColumn'](sqlinjection, repo)).to.throw()
+                expect(() => bridge['checkColumn'](sqlinjection, repo, true)).to.throw()
             })
 
-            it('should return valid column metadata', () => {
+            it('should throw if column is not simple in strict mode', () => {
+                const bridge = new CaslBridge(null, null, /*strict=*/true)
+                const sketchyRepo = db.source.getRepository('Sketchy')
+                expect(() => bridge['checkColumn']('id', sketchyRepo, true)).to.not.throw()
+                expect(() => bridge['checkColumn']('Today\'s Message', sketchyRepo, true))
+                    .to.throw('Column "Today\'s Message" not allowed in strict mode')
+            })
+
+            it('should return valid column info', () => {
+                const strict = true
+                const sketchyRepo = db.source.getRepository('Sketchy')
                 const bridge = new CaslBridge(db.source, null)
-                expect(
-                    bridge['checkColumn']('title', repo).propertyName
-                ).to.equal('title')
+                const info = bridge['checkColumn']('id"" > 0 OR 1=1; --', sketchyRepo, !strict)
+                const info2 = bridge['checkColumn']('id', repo, strict)
+
+                // NOTE: better-sqlite3 (used for these tests) uses double quotes
+                expect(info.metadata.propertyName).to.equal('id"" > 0 OR 1=1; --')
+                expect(info.workingName).to.equal('"id"" > 0 OR 1=1; --"')
+
+                // simple identifiers shouldn't need to be quoted
+                expect(info2.metadata.propertyName).to.equal('id')
+                expect(info2.workingName).to.equal('id')
             })
         })
 
@@ -434,22 +631,28 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should create a new alias', () => {
                 const bridge = new CaslBridge(db.source, null)
-                context.columns = [{ propertyName: 'title' } as any]
-                context.currentState.columnID = 0
+                context.columns = [
+                    { workingName: 'title' } as any,
+                    { workingName: '"id"" > 0 OR 1=1; --"' } as any
+                ]
 
-                const id = bridge['createAliasFrom'](context)
-                expect(id).to.equal(1)
+                context.currentState.columnID = 0
+                expect(bridge['createAliasFrom'](context)).to.equal(1)
+                context.currentState.columnID = 1
+                expect(bridge['createAliasFrom'](context)).to.equal(2)
+
                 expect(context.aliases).to.deep.equal([
                     '__table__',
-                    '__table___title'
+                    '__table___title',
+                    '__table____22id2222203e20020OR2013d13b202d2d22'
                 ])
             })
 
             it('should create a new alias from columnID', () => {
                 const bridge = new CaslBridge(db.source, null)
                 context.columns = [
-                    { propertyName: 'title' } as any,
-                    { propertyName: 'author' } as any
+                    { workingName: 'title' } as any,
+                    { workingName: 'author' } as any
                 ]
                 context.currentState.columnID = 0
 
@@ -470,8 +673,8 @@ describe('CaslTypeOrmQuery', () => {
                         '__table___author'
                     ],
                     columns: [
-                        { propertyName: 'title' } as any,
-                        { propertyName: 'author' } as any
+                        { workingName: 'title' } as any,
+                        { workingName: 'author' } as any
                     ],
                 })
             })
@@ -486,6 +689,144 @@ describe('CaslTypeOrmQuery', () => {
                 const bridge = new CaslBridge(db.source, null)
                 context.currentState.columnID = 0
                 expect(bridge['findAliasIDFor'](context)).to.equal(-1)
+            })
+        })
+
+        describe('getQuoteChars', () => {
+            let fakeRepo: Repository<any>
+            let options: { type: string }
+            let bridge: CaslBridge
+
+            beforeEach(() => {
+                bridge = new CaslBridge(db.source, null)
+                options = { type: 'mysql' }
+                fakeRepo = { manager: { connection: { options } } } as any
+            })
+
+            it('should return backticks for MySQL-like databases', () => {
+                const types = [
+                    'mysql',
+                    'aurora-mysql',
+                    'mariadb',
+                ]
+
+                types.forEach(type => {
+                    options.type = type
+                    expect(bridge['getQuoteChars'](fakeRepo)).to.deep.equal(['`'])
+                })
+            })
+
+            it('should return double quotes for standard-SQL databases', () => {
+                const types = [
+                    'sqljs',
+                    'sqlite',
+                    'better-sqlite3',
+                    'postgres',
+                    'aurora-postgres',
+                    'oracle',
+                ]
+
+                types.forEach(type => {
+                    options.type = type
+                    expect(bridge['getQuoteChars'](fakeRepo)).to.deep.equal(['"'])
+                })
+            })
+
+            it('should return square brackets for SQL Server databases', () => {
+                const types = [ 'mssql' ]
+
+                types.forEach(type => {
+                    options.type = type
+                    expect(bridge['getQuoteChars'](fakeRepo)).to.deep.equal(['[', ']'])
+                })
+            })
+
+            it('should throw for unsupported databases', () => {
+                options.type = 'unsupported'
+                expect(() => bridge['getQuoteChars'](fakeRepo)).to.throw()
+            })
+        })
+
+        describe('getQuotedName', () => {
+            let fakeRepo: Repository<any>
+            let options: { type: string }
+            let bridge: CaslBridge
+
+            beforeEach(() => {
+                bridge = new CaslBridge(db.source, null)
+
+                options = { type: 'mysql' }
+                fakeRepo = { manager: { connection: { options } } } as any
+            })
+
+            it('should double-up quote characters', () => {
+                options.type = 'mysql' // backticks
+                expect(bridge['getQuotedName'](fakeRepo, 'De`Brian\'s'))
+                    .to.equal("`De``Brian's`")
+
+                options.type = 'postgres' // double quotes
+                expect(bridge['getQuotedName'](fakeRepo, 'They say "yes"'))
+                    .to.equal('"They say ""yes"""')
+
+                options.type = 'mssql' // square brackets
+                expect(bridge['getQuotedName'](fakeRepo, 'Obj[$embed$].prop = "s"'))
+                    .to.equal('[Obj[[$embed$]].prop = "s"]')
+
+                options.type = 'better-sqlite3' // double quotes (plain name)
+                expect(bridge['getQuotedName'](fakeRepo, 'name'))
+                    .to.equal('"name"')
+            })
+
+            it('should throw if incorrect number of quote characters', () => {
+                const getQuoteChars = sinon.stub(bridge, <any>'getQuoteChars')
+
+                getQuoteChars.returns([])
+                expect(() => bridge['getQuotedName'](fakeRepo, 'name')).to.throw()
+
+                getQuoteChars.returns(['`', '"', "'"]) // pick one and stick with it
+                expect(() => bridge['getQuotedName'](fakeRepo, 'name')).to.throw()
+
+                getQuoteChars.restore()
+            })
+
+            it('should throw if quote characters identical', () => {
+                const getQuoteChars = sinon.stub(bridge, <any>'getQuoteChars')
+
+                getQuoteChars.returns(['[', '[']) // typo
+                expect(() => bridge['getQuotedName'](fakeRepo, 'name')).to.throw()
+
+                getQuoteChars.restore()
+            })
+        })
+
+        describe('aliasEncode', () => {
+            let bridge: CaslBridge
+
+            before(() => bridge = new CaslBridge(db.source, null))
+
+            it('should leave alphanumeric strings unchanged', () => {
+                expect(bridge['aliasEncode']('Column_Name_22'))
+                    .to.equal('Column_Name_22')
+            })
+
+            it('should escape special characters', () => {
+                expect(bridge['aliasEncode']('id\' > 0 OR 1=1; --'))
+                    .to.equal('id27203e20020OR2013d13b202d2d')
+            })
+
+            it('should escape first numeric character', () => {
+                expect(bridge['aliasEncode']('1id'))
+                    .to.equal('_1id')
+            })
+
+            it('should escape first numeric hex value', () => {
+                expect(bridge['aliasEncode'](' id'))
+                    .to.equal('_20id')
+            })
+
+            it('should 0-pad hex values', () => {
+                expect(bridge['aliasEncode']('id\x00'))
+                    .to.equal('id00')
             })
         })
 
@@ -529,7 +870,7 @@ describe('CaslTypeOrmQuery', () => {
                 context.columns = []
                 bridge['setColumn'](context, 'title')
                 expect(context.currentState.columnID).to.equal(0)
-                expect(context.columns[0].propertyName).to.equal('title')
+                expect(context.columns[0].metadata.propertyName).to.equal('title')
             })
 
             it('should not add metadata if already added', () => {
@@ -545,8 +886,8 @@ describe('CaslTypeOrmQuery', () => {
             beforeEach(() => {
                 _.merge(context, {
                     columns: [
-                        { propertyName: 'title' } as any,
-                        { propertyName: 'author' } as any
+                        { workingName: 'title' } as any,
+                        { workingName: 'author' } as any
                     ],
                     currentState: { columnID: 1 }
                 })
@@ -575,14 +916,28 @@ describe('CaslTypeOrmQuery', () => {
             })
         })
 
+        describe('throwBadColumnId', () => {
+            it('should throw an error', () => {
+                const bridge = new CaslBridge(db.source, null)
+                expect(() => bridge['throwBadColumnId'](2)).to.throw(
+                    'Column ID [ 2 ] not found in context. ' +
+                    'This may be do to using query functions ' +
+                    'where column names are expected.'
+                )
+            })
+        })
+
         describe('isColumnJoinable', () => {
             beforeEach(() => {
                 _.merge(context, {
                     columns: [
-                        { propertyName: 'title' } as any,
                         {
-                            propertyName: 'author',
-                            relationMetadata: {}
+                            workingName: 'title',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'author',
+                            metadata: { relationMetadata: {} }
                         } as any
                     ],
                     currentState: { columnID: 1 }
@@ -616,10 +971,13 @@ describe('CaslTypeOrmQuery', () => {
             beforeEach(() => {
                 _.merge(context, {
                     columns: [
-                        { propertyName: 'title' } as any,
                         {
-                            propertyName: 'author',
-                            relationMetadata: { type: 'Author' }
+                            workingName: 'title',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'author',
+                            metadata: { relationMetadata: { type: 'Author' } }
                         } as any
                     ],
                     currentState: { columnID: 1 }
@@ -629,21 +987,27 @@ describe('CaslTypeOrmQuery', () => {
             it('should throw if the columnID is not set', () => {
                 const bridge = new CaslBridge(db.source, null)
                 delete context.currentState.columnID
-                expect(() => bridge['getJoinableType'](context))
-                    .to.throw('Column undefined not found in context')
+                expect(() => bridge['getJoinableType'](context)).to.throw(
+                    'Column ID [ undefined ] not found in context. ' +
+                    'This may be do to using query functions ' +
+                    'where column names are expected.'
+                )
             })
 
             it('should throw if the id is invalid', () => {
                 const bridge = new CaslBridge(db.source, null)
                 context.columns = []
-                expect(() => bridge['getJoinableType'](context))
-                    .to.throw('Column 1 not found in context')
+                expect(() => bridge['getJoinableType'](context)).to.throw(
+                    'Column ID [ 1 ] not found in context. ' +
+                    'This may be do to using query functions ' +
+                    'where column names are expected.'
+                )
             })
 
             it('should throw if the column is not joinable', () => {
                 const bridge = new CaslBridge(db.source, null)
                 expect(() => bridge['getJoinableType'](context, 0))
-                    .to.throw('Column 0 has no relational data')
+                    .to.throw('Column title has no relational data')
             })
 
             it('should return the status of the given id', () => {
@@ -660,7 +1024,7 @@ describe('CaslTypeOrmQuery', () => {
         describe('selectField', () => {
             beforeEach(() => {
                 _.merge(context, {
-                    columns: [{ propertyName: 'id' } as any],
+                    columns: [{ workingName: 'id' } as any],
                     currentState: {
                         aliasID: 0,
                         columnID: 0,
@@ -670,7 +1034,7 @@ describe('CaslTypeOrmQuery', () => {
 
             it('should not select if primary field is already selected', () => {
                 const bridge = new CaslBridge(null, null)
-                context.field = 'id'
+                context.options.field = 'id'
                 bridge['selectField'](context)
                 expect(context.selected.size).to.equal(0)
             })
@@ -936,11 +1300,17 @@ describe('CaslTypeOrmQuery', () => {
                     join: builder.leftJoin.bind(builder),
                     builder,
                     columns: [
-                        { propertyName: 'id' } as any,
-                        { propertyName: 'title' } as any,
                         {
-                            propertyName: 'author',
-                            relationMetadata: { type: 'Author' }
+                            workingName: 'id',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'title',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'author',
+                            metadata: { relationMetadata: { type: 'Author' } }
                         } as any
                     ],
                     currentState: {
@@ -1046,11 +1416,17 @@ describe('CaslTypeOrmQuery', () => {
                     join: builder.leftJoin.bind(builder),
                     builder,
                     columns: [
-                        { propertyName: 'id' } as any,
-                        { propertyName: 'title' } as any,
                         {
-                            propertyName: 'author',
-                            relationMetadata: { type: 'Author' }
+                            workingName: 'id',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'title',
+                            metadata: {}
+                        } as any,
+                        {
+                            workingName: 'author',
+                            metadata: { relationMetadata: { type: 'Author' } }
                         } as any
                     ],
                     currentState: {
@@ -1083,6 +1459,12 @@ describe('CaslTypeOrmQuery', () => {
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
+            it('should insert $ge operation', () => {
+                context.currentState.columnID = 0
+                bridge['insertOperation'](context, '$ge', 1)
+                expect(context.builder.getQuery()).toMatchSnapshot()
+            })
+
             it('should insert $gte operation', () => {
                 context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$gte', 1)
@@ -1092,6 +1474,12 @@ describe('CaslTypeOrmQuery', () => {
             it('should insert $gt operation', () => {
                 context.currentState.columnID = 0
                 bridge['insertOperation'](context, '$gt', 1)
+                expect(context.builder.getQuery()).toMatchSnapshot()
+            })
+
+            it('should insert $le operation', () => {
+                context.currentState.columnID = 0
+                bridge['insertOperation'](context, '$le', 1)
                 expect(context.builder.getQuery()).toMatchSnapshot()
             })
 
@@ -1414,6 +1802,31 @@ describe('CaslTypeOrmQuery', () => {
 
             expect(entry3.id).to.equal(1)
             expect(entry3.title).to.not.be.undefined
+        })
+
+        it('should read sketchy columns', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Sketchy')
+            const ability = builder.build()
+
+            const strict = true
+            const bridge = new CaslBridge(db.source, ability, !strict)
+            const query = bridge.createQueryTo(
+                'read',
+                'Sketchy',
+                '*', // select all columns
+                {
+                    '$recycle$': true,
+                    'id"" > 0 OR 1=1; --': { $isNot: null },
+                    '🤔': { $gte: 1, $lte: 10 }
+                }
+            )
+
+            console.log('read sketchy columns')
+            const entries = await query.getMany()
+
+            expect(query.getQuery()).toMatchSnapshot()
+            expect(entries.length).to.equal(5)
         })
 
         it('should throw before malicious query can be executed', () => {

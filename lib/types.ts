@@ -98,6 +98,13 @@ export enum ColumnValidationMethod {
 
 export interface QueryOptions {
     /**
+     * Whether to use strict validation for column names.
+     * Only alpha-numeric column names matching the pattern
+     * `/^[a-zA-Z_][a-zA-Z0-9_]*$/` will be allowed
+     * regardless of the database schema. Default is `true`.
+     */
+    strict?: boolean,
+    /**
      * Table alias to use in the query.
      * Defaults to `__table__`.
      */
@@ -167,17 +174,20 @@ export interface QueryState {
     selectMap: Selected
 }
 
+export interface ColumnInfo {
+    readonly workingName: string // may be identifier or quoted name
+    readonly metadata: ColumnMetadata
+}
+
 export interface QueryContext {
+    // the running query options for the current query
+    options: InternalQueryOptions
     // the incremental parameter index
     parameter: number
-    // the alias of the current table
-    table: string
     // the join function (left-join only or left-join-and-select)
     join: (...args: any[]) => any
     // the top-level query builder
     builder: SelectQueryBuilder<any>
-    // the optional selected field
-    field?: string
     // map of fields to select (true/false or nested map)
     selectMap: Selected
     // list of selected fields
@@ -185,7 +195,7 @@ export interface QueryContext {
     // the list of aliases created and validated
     aliases: string[]
     // the list of validated columns
-    columns: ColumnMetadata[]
+    columns: ColumnInfo[]
     // the bracketed query stack
     stack: QueryState[]
     // the current query state

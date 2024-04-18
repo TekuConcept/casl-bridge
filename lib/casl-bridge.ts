@@ -8,6 +8,7 @@ import {
 } from 'typeorm'
 import {
     CaslGate,
+    ColumnInfo,
     FilterObject,
     InternalQueryOptions,
     MongoFields,
@@ -21,11 +22,15 @@ import {
 } from './types'
 import { AnyAbility, SubjectType } from '@casl/ability'
 import { Rule } from '@casl/ability/dist/types/Rule'
+import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
+
+const SimpleColumnGrammar = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
 export class CaslBridge {
     constructor(
         public readonly manager: DataSource | EntityManager,
-        public readonly casl: CaslGate
+        public readonly casl: CaslGate,
+        public strict = true,
     ) {}
 
     /**
@@ -190,11 +195,10 @@ export class CaslBridge {
             : builder['leftJoin']
 
         const context: QueryContext = {
+            options,
             parameter: 0,
-            table,
             join: join.bind(builder),
             builder,
-            field: options.field,
             selectMap: options.select,
             selected: new Set(),
             aliases: [table],
@@ -212,8 +216,18 @@ export class CaslBridge {
             this.insertFilters(context, options.filters)
 
         if (options.selectAll || context.selected.size === 0) {
-            const selected = this.selectAll(repo, table)
+            const strict = options.strict
+            const selected = this.selectAll(repo, table, strict)
             selected.forEach(entry => context.selected.add(entry))
+            /**
+             * WARNING: `addSelect()` may pose a security risk here.
+             * (see snapshot "CaslTypeOrmQuery example queries should read sketchy columns 1")
+             * 
+             * TODO:
+             * - use `select()` instead of `addSelect()`
+             * - consider `selectAllImmediateFields()` for '*' pattern
+             * - consider recursive select for '**.*' pattern
+             */
             builder.addSelect(Array.from(context.selected))
         } else builder.select(Array.from(context.selected))
 
@@ -229,8 +243,7 @@ export class CaslBridge {
 
         // For now, parameterized table names are not allowed.
         // Names must be alphanumeric with underscores only.
-        const regex = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-        if (!regex.test(options.table))
+        if (!SimpleColumnGrammar.test(options.table))
             throw new Error(`Invalid table name: ${options.table}`)
 
         if (options.select === '*') {
@@ -255,6 +268,9 @@ export class CaslBridge {
         if (typeof options.field !== 'string')
             options.field = undefined
 
+        if (typeof options.strict !== 'boolean')
+            options.strict = this.strict
+
         return options
     }
 
@@ -266,7 +282,8 @@ export class CaslBridge {
             field: undefined,
             selectAll: false,
             select: true,
-            filters: undefined
+            filters: undefined,
+            strict: this.strict
         }
 
         if (typeof args[0] === 'object' && args[0] !== null) {
@@ -292,29 +309,39 @@ export class CaslBridge {
     }
 
     private selectAll<T extends object>(
-        repository: Repository<T>,
-        prefix?: string
+        repo: Repository<T>,
+        prefix?: string,
+        strict: boolean = true
     ) {
-        return repository.metadata.columns.map(
-            col => {
-                if (prefix) return `${prefix}.${col.propertyName}`
-                return col.propertyName
-            }
-        )
+        console.log('selectAll')
+        return repo.metadata.columns
+            .map(
+                metadata => {
+                    const info = this.getInfoFromColumnMetadata(
+                        repo,
+                        metadata,
+                        strict
+                    )
+                    if (!info) return null // likely failed strict test, skip
+                    if (prefix) return `${prefix}.${info.workingName}`
+                    return info.workingName
+                }
+            )
+            .filter(x => x)
     }
 
     private selectPrimaryField(context: QueryContext) {
-        const { field } = context
+        const { field } = context.options
 
         if (!field) return
 
         context.selectMap = true
         context.currentState.selectMap = true
 
-        context.field = null // allow selectField to work
+        context.options.field = null // allow selectField to work
         this.setColumn(context, field)
         this.selectField(context)
-        context.field = field
+        context.options.field = field
 
         if (!this.isColumnJoinable(context)) return
 
@@ -338,13 +365,13 @@ export class CaslBridge {
         const nextRepo = repo.manager.getRepository(repoType)
 
         this.scopedInvoke(context, () => {
-            context.field = null // allow selectField to work
+            context.options.field = null // allow selectField to work
             nextRepo.metadata.ownColumns.forEach(metadata => {
                 const joinColumnName = metadata.propertyName
                 this.setColumn(context, joinColumnName)
                 this.selectField(context)
             })
-            context.field = field
+            context.options.field = field
         }, {
             aliasID: nextAliasID,
             repo: nextRepo,
@@ -354,17 +381,22 @@ export class CaslBridge {
 
     private selectAllImmediateFields(context: QueryContext) {
         const { repo } = context.currentState
-        const { field } = context
+        const { field } = context.options
 
         repo.metadata.ownColumns.forEach(metadata => {
-            const column = metadata.propertyName
+            const info = this.getInfoFromColumnMetadata(
+                repo,
+                metadata,
+                context.options.strict
+            )
+            if (!info) return /* likely failed strict test, skip */
 
-            context.field = null // allow selectField to work
-            this.setColumn(context, column)
+            context.options.field = null // allow selectField to work
+            this.setColumn(context, info.metadata.propertyName)
             this.selectField(context)
-            context.field = field
+            context.options.field = field
 
-            if (!metadata.relationMetadata) return
+            if (!info.metadata.relationMetadata) return
 
             const nextAliasID = this.createAliasFrom(context)
             const nextAliasName = this.getAliasName(context, nextAliasID)
@@ -376,18 +408,29 @@ export class CaslBridge {
             const repoType = this.getJoinableType(context)
             const nextRepo = repo.manager.getRepository(repoType)
 
+            // only include first-level relational fields
             this.scopedInvoke(context, () => {
                 nextRepo.metadata.ownColumns.forEach(metadata => {
-                    const joinColumn = metadata.propertyName
-                    context.field = null // allow selectField to work
-                    this.setColumn(context, joinColumn)
+                    const relInfo = this.getInfoFromColumnMetadata(
+                        repo,
+                        metadata,
+                        context.options.strict
+                    )
+                    if (!relInfo) return /* likely failed strict test, skip */
+
+                    context.options.field = null // allow selectField to work
+                    this.setColumn(context, relInfo.metadata.propertyName)
                     this.selectField(context)
-                    context.field = field
+                    context.options.field = field
                 })
             }, {
                 aliasID: nextAliasID,
                 repo: nextRepo,
-                selectMap: this.nextSelectMap(context, column)
+                selectMap: this.nextSelectMap(
+                    context,
+                    // select the columnname in the user-provided select-map
+                    info.metadata.propertyName
+                )
             })
         })
     }
@@ -450,6 +493,22 @@ export class CaslBridge {
     // ACCESS FUNCTIONS                                       //
     ////////////////////////////////////////////////////////////
 
+    private getInfoFromColumnMetadata(
+        repo: Repository<any>,
+        metadata: ColumnMetadata,
+        strict: boolean
+    ): ColumnInfo {
+        const isSimple = SimpleColumnGrammar.test(metadata.propertyName)
+        let workingName = metadata.propertyName
+
+        if (!isSimple) {
+            if (strict) return null
+            workingName = this.getQuotedName(repo, workingName)
+        }
+
+        return { workingName, metadata }
+    }
+
     /**
      * This will throw an error if the specified column
      * does not exist in the given repository's table.
@@ -459,8 +518,9 @@ export class CaslBridge {
      */
     private checkColumn(
         column: string,
-        repo: Repository<any>
-    ) {
+        repo: Repository<any>,
+        strict: boolean
+    ): ColumnInfo {
         /* -------------------------------- *\
          *   !! THIS CHECK IS CRITICAL !!   *
         \* -------------------------------- */
@@ -468,8 +528,12 @@ export class CaslBridge {
         const map = repo.metadata.ownColumns
         const metadata = map.find(k => k.propertyName === column)
 
-        if (!metadata) throw new Error(`Invalid column key ${column}`)
-        return metadata
+        if (!metadata) throw new Error(`Invalid column key "${column}"`)
+
+        const info = this.getInfoFromColumnMetadata(repo, metadata, strict)
+        if (!info) throw new Error(`Column "${column}" not allowed in strict mode`)
+
+        return info
     }
 
     /**
@@ -484,7 +548,9 @@ export class CaslBridge {
         context: QueryContext,
         columnID?: number
     ) {
-        const columnName = this.getColumnName(context, columnID)
+        const columnName = this.aliasEncode(
+            this.getColumnName(context, columnID)
+        )
         const parentAlias = this.getAliasName(context)
         const aliasName = `${parentAlias}_${columnName}`
         const aid = context.aliases.length
@@ -499,6 +565,91 @@ export class CaslBridge {
         const columnName = this.getColumnName(context)
         const aliasName = `${parentAlias}_${columnName}`
         return context.aliases.indexOf(aliasName)
+    }
+
+    private getQuoteChars(
+        repo: Repository<any>
+    ): string[] {
+        const databaseType = repo.manager.connection.options.type
+
+        switch (databaseType) {
+        case 'mysql':
+        case 'aurora-mysql':
+        case 'mariadb': return ['`']
+        case 'sqljs':
+        case 'sqlite':
+        case 'better-sqlite3':
+        case 'postgres':
+        case 'aurora-postgres':
+        case 'oracle': return ['"']
+        case 'mssql': return ['[', ']']
+        default: throw new Error(`${databaseType} not supported`)
+        }
+    }
+
+    /**
+     * NOTE: TypeORM qoutes column names with special characters
+     *       and assumes the developer is using safe column names,
+     *       so quoting characters need to be escaped when the
+     *       schema is defined.
+     * 
+     *       Nevertheless, this function will escape any characters
+     *       that are not already doubled-up just in case, and then
+     *       quote the name as a whole with the respective quote
+     *       characters.
+     */
+    private getQuotedName(
+        repo: Repository<any>,
+        name: string
+    ) {
+        const quoteChars = this.getQuoteChars(repo)
+        let result = name
+
+        quoteChars.forEach(c => {
+            // checks if a character is by itself - no
+            // character is like it before or after
+            const regex = new RegExp(`(?<!\\${c})\\${c}(?!\\${c})`, 'g')
+            result = result.replace(regex, `${c}${c}`)
+        })
+
+        // These will be overwritten but paranoia demands they be set
+        let left: string = '"'
+        let right: string = '"'
+
+        if (quoteChars.length === 2) {
+            left = quoteChars[0]
+            right = quoteChars[1]
+            // paranoia check - make sure left and right are unique
+            if (left === right)
+                throw new Error('Unexpected quote characters')
+        } else if (quoteChars.length === 1)
+            left = right = quoteChars[0]
+        else throw new Error('Unexpected quote characters')
+
+        return `${left}${result}${right}`
+    }
+
+    /**
+     * Converts all non-alphanumeric characters to hex.
+     * (Equivalent to `encodeURIComponent()` but without `%`).
+     * 
+     * WARNING: This may result in collissions. For example,
+     * `id00` and `id\x00` will both encode to `id00`. Perhaps
+     * a light-weight hashing function would be better?
+     * 
+     * @param string The new alias name to encode.
+     * @returns The encoded alias name.
+     */
+    private aliasEncode(string: string) {
+        let result = string.replace(/[^a-zA-Z0-9_]/g, c => {
+            let r = c.charCodeAt(0).toString(16)
+            if (r.length % 2) r = `0${r}`
+            return r
+        })
+
+        if (result[0].match(/[0-9]/)) result = `_${result}`
+
+        return result
     }
 
     /**
@@ -530,10 +681,21 @@ export class CaslBridge {
         column: string
     ) {
         const { repo } = context.currentState
-        const metadata = this.checkColumn(column, repo)
-        if (context.columns.indexOf(metadata) < 0)
-            context.columns.push(metadata)
-        context.currentState.columnID = context.columns.indexOf(metadata)
+        let existingId = context.columns.findIndex(value => {
+            return value.metadata.propertyName === column
+        })
+
+        if (existingId < 0) {
+            const info = this.checkColumn(
+                column,
+                repo,
+                context.options.strict
+            )
+            existingId = context.columns.length
+            context.columns.push(info)
+        }
+
+        context.currentState.columnID = existingId
     }
 
     /**
@@ -549,9 +711,19 @@ export class CaslBridge {
         id?: number
     ) {
         const cid = id ?? context.currentState.columnID
-        const column = context.columns[cid]
-        if (!column) throw new Error(`Column ID ${cid} not found in context`)
-        return column.propertyName
+        const info = context.columns[cid]
+
+        if (!info) this.throwBadColumnId(cid)
+
+        return info.workingName
+    }
+
+    private throwBadColumnId(cid: number) {
+        throw new Error(
+            `Column ID [ ${cid} ] not found in context. ` +
+            `This may be do to using query functions ` +
+            `where column names are expected.`
+        )
     }
 
     /**
@@ -563,8 +735,8 @@ export class CaslBridge {
         id?: number
     ) {
         const cid = id ?? context.currentState.columnID
-        const column = context.columns[cid]
-        return !!column?.relationMetadata
+        const info = context.columns[cid]
+        return !!info?.metadata.relationMetadata
     }
 
     private getJoinableType(
@@ -572,11 +744,11 @@ export class CaslBridge {
         id?: number
     ) {
         const cid = id ?? context.currentState.columnID
-        const column = context.columns[cid]
-        if (!column) throw new Error(`Column ${cid} not found in context`)
-        if (!column.relationMetadata)
-            throw new Error(`Column ${cid} has no relational data`)
-        return column.relationMetadata.type
+        const info = context.columns[cid]
+        if (!info) this.throwBadColumnId(cid)
+        if (!info.metadata.relationMetadata)
+            throw new Error(`Column ${info.workingName} has no relational data`)
+        return info.metadata.relationMetadata.type
     }
 
     /**
@@ -591,7 +763,7 @@ export class CaslBridge {
         context: QueryContext,
         columnID?: number
     ) {
-        if (context.field) return
+        if (context.options.field) return
 
         const { selectMap } = context.currentState
         const columnName = this.getColumnName(context, columnID)
@@ -823,8 +995,10 @@ export class CaslBridge {
         switch (operator) {
         case '$eq':         where(`${aliasName}.${columnName}  = :${param}`, { [param]: operand }); break
         case '$ne':         where(`${aliasName}.${columnName} != :${param}`, { [param]: operand }); break
+        case '$ge':         // fall-through
         case '$gte':        where(`${aliasName}.${columnName} >= :${param}`, { [param]: operand }); break
         case '$gt':         where(`${aliasName}.${columnName}  > :${param}`, { [param]: operand }); break
+        case '$le':         // fall-through
         case '$lte':        where(`${aliasName}.${columnName} <= :${param}`, { [param]: operand }); break
         case '$lt':         where(`${aliasName}.${columnName}  < :${param}`, { [param]: operand }); break
         case '$not':

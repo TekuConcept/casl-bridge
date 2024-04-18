@@ -22,6 +22,23 @@ export class Book {
     author: Author
 }
 
+export class Sketchy {
+    constructor(partial?: Partial<Sketchy>) {
+        Object.assign(this, partial ?? {})
+    }
+
+    id: number
+    'Today\'s Message': string
+    '$recycle$': boolean
+
+    // NOTE: TypeORM qoutes column names with quote characters and
+    //       assumes the developer is using safe column names, so
+    //       quoting characters need to be escaped when the schema
+    //       is defined.
+    'id"" > 0 OR 1=1; --': string
+    '🤔': number
+}
+
 export const AuthorSchema = new EntitySchema<Author>({
     name: 'Author',
     tableName: 'author',
@@ -68,9 +85,41 @@ export const BookSchema = new EntitySchema<Book>({
     },
 })
 
+export const SketchySchema = new EntitySchema<Sketchy>({
+    name: 'Sketchy',
+    tableName: 'sketchy',
+    target: Sketchy,
+    columns: {
+        id: {
+            type: 'int',
+            primary: true,
+            generated: true,
+        },
+        'Today\'s Message': {
+            type: 'varchar',
+            length: 256,
+            nullable: false,
+        },
+        '$recycle$': {
+            type: 'boolean',
+            nullable: false,
+        },
+        'id"" > 0 OR 1=1; --': {
+            type: 'varchar',
+            length: 32,
+            nullable: true,
+        },
+        '🤔': {
+            type: 'int',
+            nullable: false,
+        },
+    },
+})
+
 export const tables = [
     AuthorSchema,
     BookSchema,
+    SketchySchema,
 ]
 
 export class TestDatabase {
@@ -116,6 +165,7 @@ export class TestDatabase {
 
     async seed() {
         await this.seedAuthors()
+        await this.seedSketchy()
     }
 
     private async seedAuthors() {
@@ -136,6 +186,18 @@ export class TestDatabase {
                 author,
             })
             await this.source.manager.save(book)
+        }
+    }
+
+    private async seedSketchy() {
+        for (let i = 0; i < 10; i++) {
+            const sketchy = new Sketchy({
+                'Today\'s Message': faker.lorem.sentence().substring(0, 256),
+                '$recycle$': !!(i % 2),
+                'id"" > 0 OR 1=1; --': faker.lorem.word().substring(0, 32),
+                '🤔': i,
+            })
+            await this.source.manager.save(sketchy)
         }
     }
 }
