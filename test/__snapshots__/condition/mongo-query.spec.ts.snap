@@ -1,0 +1,63 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`MongoTreeBuilder print should print a query 1`] = `
+"condition [?] {
+  type: scoped
+  trace: TRACE: ?
+  alias: __root__
+  column: null
+  scope: 1
+  condition [0] {
+    type: scoped
+    trace: TRACE: ? > $and
+    alias: __root__
+    column: null
+    scope: 1
+    condition [0] {
+      type: scoped
+      trace: TRACE: ? > $and > $and
+      alias: __root__
+      column: null
+      scope: 1
+      condition [0] {
+        type: primitive
+        trace: TRACE: ? > $and > $and > field > $eq
+        alias: __root__
+        column: field
+        operator: 0
+        operand: 1
+      }
+    }
+    condition [1] {
+      type: scoped
+      trace: TRACE: ? > $and > $and
+      alias: __root__
+      column: null
+      scope: 1
+      condition [0] {
+        type: primitive
+        trace: TRACE: ? > $and > $and > field2 > $eq
+        alias: __root__
+        column: field2
+        operator: 0
+        operand: 2
+      }
+      condition [1] {
+        type: scoped
+        trace: TRACE: ? > $and > $and > field3 > $and
+        alias: __root___field3
+        column: field3
+        scope: 1
+        condition [0] {
+          type: primitive
+          trace: TRACE: ? > $and > $and > field3 > $and > id > $eq
+          alias: __root___field3
+          column: id
+          operator: 0
+          operand: 3
+        }
+      }
+    }
+  }
+}"
+`;
