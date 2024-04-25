@@ -26,7 +26,7 @@ async function main() {
     const builder = new AbilityBuilder(createMongoAbility)
 
     builder.can('read', 'Book', { id: 1 })
-    builder.can('read', 'Book', { id: 3 })
+    builder.can('read', 'Book', { 'author.id': 3 })
 
     const ability = builder.build()
 
@@ -62,10 +62,10 @@ const ids = await bridge
  */
 
 const names = await bridge
-    .createQueryTo('read', 'Book', {
-        title: true,
-        author: { name: true }
-    })
+    .createQueryTo('read', 'Book', [
+        'title',
+        [ 'author', [ 'name' ] ]
+    ])
     .limit(3)
     .getMany()
 
@@ -74,10 +74,10 @@ const names = await bridge
  */
 
 const names = await bridge
-    .createQueryTo('read', 'Book', {
-        title: true,
-        author: { name: true }
-    }, { id: { $ge: 10, $le: 20 } })
+    .createQueryTo('read', 'Book', [
+        'title',
+        [ 'author', [ 'name' ] ]
+    ], { id: { $ge: 10, $le: 20 } })
     .limit(3)
     .getMany()
 ```

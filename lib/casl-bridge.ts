@@ -183,9 +183,11 @@ export class CaslBridge {
             const filterQuery = new MongoQuery(options.filters)
             const filterTree = filterQuery.build(options.table)
             serializer.serializeWith(query, filterTree)
+            filterTree.unlink()
         }
 
         serializer.select(query, tree, options.select)
+        tree.unlink()
         return query.data
     }
 
@@ -221,6 +223,7 @@ export class CaslBridge {
 
         const query = serializer.serialize(filterTree)
         serializer.select(query, filterTree, selectPatten)
+        filterTree.unlink()
 
         return query.data
     }
@@ -271,6 +274,7 @@ export class CaslBridge {
         )
 
         serializer.serializeWith(queryBuilder, filterTree)
+        filterTree.unlink()
 
         return query
     }
