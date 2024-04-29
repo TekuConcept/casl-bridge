@@ -267,7 +267,7 @@ export class CaslBridge {
         const filterQuery = new MongoQuery(filters)
         const filterTree = filterQuery.build(aliasName)
 
-        const join = query.leftJoin.bind(query)
+        const join = TypeOrmTableInfo.createJoinFunction(query)
         const queryBuilder = new TypeOrmQueryBuilder(
             query,
             join,

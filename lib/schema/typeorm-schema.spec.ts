@@ -24,6 +24,9 @@ describe('TypeOrmSchema', () => {
 
     after(async () => await db.disconnect())
 
+    /** convinience function for comparing human-readable strings */
+    function shrink(s: string) { return s.replace(/\s+/g, ' ').trim() }
+
     describe('TypeOrmTableInfo', () => {
         describe('hasColumn', () => {
             let authorRepo: Repository<Author>
@@ -243,6 +246,63 @@ describe('TypeOrmSchema', () => {
             it('should create a new instance', () => {
                 const tableInfo = TypeOrmTableInfo.createFrom(db.source, Book)
                 expect(tableInfo).to.be.instanceOf(TypeOrmTableInfo)
+            })
+        })
+
+        describe('createJoinFunction', () => {
+            it('should create left join function', () => {
+                const query = repo.createQueryBuilder('book')
+                const join = TypeOrmTableInfo.createJoinFunction(query, 'left')
+
+                join('book.author', 'author')
+
+                expect(shrink(query.getQuery())).to.equal(
+                    shrink(`
+                        SELECT "book"."id" AS "book_id",
+                               "book"."title" AS "book_title",
+                               "book"."authorId" AS "book_authorId"
+                        FROM "book" "book"
+                        LEFT JOIN "author" "author"
+                        ON "author"."id"="book"."authorId"
+                    `)
+                )
+            })
+
+            it('should create inner join function', () => {
+                const query = repo.createQueryBuilder('book')
+                const join = TypeOrmTableInfo.createJoinFunction(query, 'inner')
+
+                join('book.author', 'author')
+
+                expect(shrink(query.getQuery())).to.equal(
+                    shrink(`
+                        SELECT "book"."id" AS "book_id",
+                               "book"."title" AS "book_title",
+                               "book"."authorId" AS "book_authorId"
+                        FROM "book" "book"
+                        INNER JOIN "author" "author"
+                        ON "author"."id"="book"."authorId"
+                    `)
+                )
+            })
+
+            it('should not join already joined columns', () => {
+                const query = repo.createQueryBuilder('book')
+                const join = TypeOrmTableInfo.createJoinFunction(query, 'inner')
+
+                join('book.author', 'author')
+                join('book.author', 'author')
+
+                expect(shrink(query.getQuery())).to.equal(
+                    shrink(`
+                        SELECT "book"."id" AS "book_id",
+                               "book"."title" AS "book_title",
+                               "book"."authorId" AS "book_authorId"
+                        FROM "book" "book"
+                        INNER JOIN "author" "author"
+                        ON "author"."id"="book"."authorId"
+                    `)
+                )
             })
         })
     })

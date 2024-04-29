@@ -164,7 +164,7 @@ export class TypeOrmTableInfo implements ITableInfo {
 
     createQueryBuilder(alias: string): TypeOrmSelectQueryBuilder {
         const queryBuilder = this.data.createQueryBuilder(alias)
-        const join = queryBuilder.leftJoin.bind(queryBuilder)
+        const join = TypeOrmTableInfo.createJoinFunction(queryBuilder)
         const select = queryBuilder.select.bind(queryBuilder)
 
         return new TypeOrmSelectQueryBuilder(
@@ -181,6 +181,26 @@ export class TypeOrmTableInfo implements ITableInfo {
     ): TypeOrmTableInfo {
         const repo = source.getRepository(table)
         return new TypeOrmTableInfo(repo)
+    }
+
+    /**
+     * Creates a wrapped join function for a TypeORM query builder.
+     * The new join function will only join a relation once.
+     */
+    static createJoinFunction(
+        query: SelectQueryBuilder<any>,
+        direction: 'inner' | 'left' = 'left'
+    ): JoinFunction {
+        const join = direction === 'inner'
+            ? query.innerJoin.bind(query)
+            : query.leftJoin.bind(query)
+
+        return (relation: string, alias: string) => {
+            const attr = query.expressionMap.joinAttributes.find(j => {
+                return j.entityOrProperty === relation
+            })
+            if (!attr) join(relation, alias)
+        }
     }
 }
 
