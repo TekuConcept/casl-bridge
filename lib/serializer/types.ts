@@ -1,4 +1,4 @@
-import { IQueryBuilder } from '@/schema'
+import { IQueryBuilder } from '../schema'
 import { ConditionTree } from '../condition'
 
 export type SelectField = string | SelectPattern

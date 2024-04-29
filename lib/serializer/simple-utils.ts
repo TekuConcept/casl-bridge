@@ -1,4 +1,4 @@
-import { ITableInfo } from '@/schema'
+import { ITableInfo } from '../schema'
 
 export class SimpleUtils {
     /**

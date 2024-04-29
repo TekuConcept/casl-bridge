@@ -1,4 +1,5 @@
 import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm'
+import { Rule } from '@casl/ability/dist/types/Rule'
 import {
     AbilityBuilder,
     AnyAbility,
@@ -14,7 +15,8 @@ import {
 } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
-import { Rule } from '@casl/ability/dist/types/Rule'
+
+export type FilterObject = MongoQueryObjects
 
 export class CaslBridge {
     casl: CaslGate
@@ -65,7 +67,7 @@ export class CaslBridge {
         subject: SubjectType,
         field: string,
         selectPattern: SelectPattern,
-        filters: MongoQueryObjects
+        filters: FilterObject
     ): SelectQueryBuilder<any>;
 
     /**
@@ -90,7 +92,7 @@ export class CaslBridge {
         action: string,
         subject: SubjectType,
         selectPattern: SelectPattern,
-        filters: MongoQueryObjects
+        filters: FilterObject
     ): SelectQueryBuilder<any>;
 
     /**
@@ -210,7 +212,7 @@ export class CaslBridge {
      */
     createFilterFor(
         subject: SubjectType,
-        filters: MongoQueryObjects,
+        filters: FilterObject,
         selectPatten: SelectPattern = '*',
         alias = '__table__'
     ): SelectQueryBuilder<any> {
@@ -253,7 +255,7 @@ export class CaslBridge {
     applyFilterTo(
         query: SelectQueryBuilder<any>,
         aliasName: string,
-        filters: MongoQueryObjects,
+        filters: FilterObject,
     ): SelectQueryBuilder<any> {
         if (!filters) return query
 

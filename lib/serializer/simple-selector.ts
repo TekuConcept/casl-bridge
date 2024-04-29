@@ -2,8 +2,8 @@ import {
     ConditionTree,
     PrimitiveCondition,
     ScopedCondition
-} from '@/condition'
-import { IQueryBuilder, ITableInfo } from '@/schema'
+} from '../condition'
+import { IQueryBuilder, ITableInfo } from '../schema'
 import { SelectList, SelectPattern, SelectTuple } from './types'
 import { SimpleUtils } from './simple-utils'
 

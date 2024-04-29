@@ -1,5 +1,5 @@
 
-import { IBrackets, IQueryBuilder, ITableInfo } from '@/schema'
+import { IBrackets, IQueryBuilder, ITableInfo } from '../schema'
 import { ISerializer, SelectPattern } from './types'
 import {
     ConditionTree,
@@ -8,10 +8,9 @@ import {
     PrimitiveCondition,
     ScopeOp,
     ScopedCondition
-} from '@/condition'
+} from '../condition'
 import { SimpleSelector } from './simple-selector'
 import { SimpleUtils } from './simple-utils'
-import { SelectQueryBuilder } from 'typeorm'
 
 interface ScopeInfo {
     shared: { counter: number }
