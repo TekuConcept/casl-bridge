@@ -1,5 +1,61 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`MongoTreeBuilder examples query 2 should build queries with dot-notation 1`] = `
+"condition [?] {
+  type: scoped
+  trace: TRACE: ?
+  alias: __root__
+  column: null
+  scope: 1
+  condition [0] {
+    type: primitive
+    trace: TRACE: ? > id > $eq
+    alias: __root__
+    column: id
+    operator: 0
+    operand: 2
+  }
+  condition [1] {
+    type: scoped
+    trace: TRACE: ? > author > $and
+    alias: __root___author
+    column: author
+    scope: 1
+    condition [0] {
+      type: primitive
+      trace: TRACE: ? > author > $and > id > $eq
+      alias: __root___author
+      column: id
+      operator: 0
+      operand: 1
+    }
+    condition [1] {
+      type: primitive
+      trace: TRACE: ? > author > $and > name > $eq
+      alias: __root___author
+      column: name
+      operator: 0
+      operand: Lewis Carroll
+    }
+    condition [2] {
+      type: scoped
+      trace: TRACE: ? > author > $and > comments > $and
+      alias: __root___author_comments
+      column: comments
+      scope: 1
+      condition [0] {
+        type: primitive
+        trace: TRACE: ? > author > $and > comments > $and > id > $in
+        alias: __root___author_comments
+        column: id
+        operator: 8
+        operand: 1,2
+      }
+    }
+  }
+}"
+`;
+
 exports[`MongoTreeBuilder print should print a query 1`] = `
 "condition [?] {
   type: scoped

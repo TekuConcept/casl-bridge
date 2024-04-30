@@ -820,5 +820,21 @@ describe('MongoTreeBuilder', () => {
                 expect(condition2.operand).to.equal(5)
             })
         })
+
+        describe('query 2', () => {
+            it('should build queries with dot-notation', () => {
+                const rawQuery = {
+                    id: 2,
+                    'author.id': { $eq: 1 },
+                    'author.name': 'Lewis Carroll',
+                    'author.comments.id': { $in: [1, 2] }
+                }
+                const builder = new MongoTreeBuilder(rawQuery)
+                const root = builder.build() as ScopedCondition
+                const str = MongoTreeBuilder.print(root)
+
+                expect(str).to.toMatchSnapshot()
+            })
+        })
     })
 })
