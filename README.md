@@ -16,7 +16,7 @@ $ npm install casl-bridge
 
 
 
-## Example
+## Examples
 
 A simple demonstration...
 
@@ -61,11 +61,9 @@ const ids = await bridge
  * select specific fields
  */
 
+const select = ['id', 'title', ['author', ['name']]]
 const names = await bridge
-    .createQueryTo('read', 'Book', [
-        'title',
-        [ 'author', [ 'name' ] ]
-    ])
+    .createQueryTo('read', 'Book', select)
     .limit(3)
     .getMany()
 
@@ -73,13 +71,38 @@ const names = await bridge
  * add extra mongo-like query filters
  */
 
-const names = await bridge
-    .createQueryTo('read', 'Book', [
-        'title',
-        [ 'author', [ 'name' ] ]
-    ], { id: { $ge: 10, $le: 20 } })
+const filter = { id: { $ge: 10, $le: 20 } }
+const limited = await bridge
+    .createQueryTo('read', 'Book', select, filter)
     .limit(3)
     .getMany()
+
+/* --------------------------------------
+ * using just the filter feature
+ */
+
+const filtered = await bridge
+    .createFilterFor('Book', {
+        'author.name': 'Jane Austen',
+        id: { $in: [2, 3, 5] },
+    })
+    .getMany()
+
+/* --------------------------------------
+ * [experimental] apply filter to query
+ */
+
+const query = bookRepo
+    .createQueryBuilder('book')
+    .leftJoin('book.author', 'author')
+    .where('book.id > :bookId', { bookId: 3 })
+
+bridge.applyFilterTo(query, 'author', {
+    name: 'Jane Austen'
+})
+
+const moreBooks = await query.getOne()
+
 ```
 
 ### Database Setup
