@@ -292,6 +292,15 @@ describe('SimpleSerializer', () => {
             })
         })
 
+        it('should serialize empty result conditions', () => {
+            condition.operator = PrimOp.EMPTY_RESULT
+
+            serializer.serializePrimCondition(scopeInfo, condition)
+            expect(shrink(scopeInfo.builder.data.getQuery())).to.equal(
+                shrink('SELECT * FROM "book" "__test__" WHERE FALSE')
+            )
+        })
+
         it('should throw an error for unknown columns', () => {
             const condition = new PrimitiveCondition({
                 alias: '__test__',

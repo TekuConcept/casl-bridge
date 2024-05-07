@@ -99,6 +99,23 @@ describe('MongoTreeBuilder', () => {
             result.unlink()
         })
 
+        it('should build a null query', () => {
+            const builder = new MongoTreeBuilder(null)
+            const result = builder.build() as ScopedCondition
+
+            expect(result.type).to.equal('scoped')
+            expect(result.scope).to.equal(ScopeOp.AND)
+            expect(result.conditions).to.have.lengthOf(1)
+
+            const condition = result.conditions[0] as PrimitiveCondition
+            expect(condition.type).to.equal('primitive')
+            expect(condition['_column']).to.be.null
+            expect(condition.operator).to.equal(PrimOp.EMPTY_RESULT)
+            expect(condition.operand).to.be.null
+
+            result.unlink()
+        })
+
         it('should build a field query', () => {
             const builder = new MongoTreeBuilder({ field: 1 })
             const result = builder.build() as ScopedCondition
@@ -314,7 +331,11 @@ describe('MongoTreeBuilder', () => {
         beforeEach(() => builder = new MongoTreeBuilder({}))
 
         it('should throw an error if input not an object', () => {
-            expect(() => builder.buildObject(2 as any)).to.throw('Expected object')
+            expect(() => builder.buildObject(2 as any)).to.throw('Expected object, got number')
+        })
+
+        it('should throw an error if input is null', () => {
+            expect(() => builder.buildObject(null)).to.throw('Expected object, got null')
         })
 
         it('should build array of objects', () => {
@@ -427,6 +448,11 @@ describe('MongoTreeBuilder', () => {
             builder['conditionStack'].push(root)
         })
         afterEach(() => root.unlink())
+
+        it('should not build undefined field', () => {
+            builder.buildField('field', undefined)
+            expect(root.conditions).to.have.lengthOf(0)
+        })
 
         it('should build null field', () => {
             const buildOperator = sinon.stub(builder, 'buildOperator')
@@ -774,6 +800,29 @@ describe('MongoTreeBuilder', () => {
             expect(() => builder.buildPrimCondition(
                 '$eq', PrimOp.EQUAL, 1, ''
             )).to.throw('Expected column name for \'$eq\'!')
+
+            // cleanup
+            root.unlink()
+        })
+    })
+
+    describe('buildNullCondition', () => {
+        it('should build a null condition', () => {
+            const builder = new MongoTreeBuilder({})
+            const root = new ScopedCondition({ alias: '__root__' })
+            builder['conditionStack'].push(root)
+
+            builder.buildNullCondition()
+
+            expect(root.conditions).to.have.lengthOf(1)
+
+            const condition = root.conditions[0] as PrimitiveCondition
+            expect(condition.type).to.equal('primitive')
+            expect(condition.alias).to.equal('__root__')
+            expect(condition['_column']).to.be.null
+            expect(condition.operator).to.equal(PrimOp.EMPTY_RESULT)
+            expect(condition.operand).to.be.null
+            expect(condition.parent).to.equal(root)
 
             // cleanup
             root.unlink()

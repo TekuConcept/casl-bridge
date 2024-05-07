@@ -6,6 +6,7 @@ export enum ScopeOp {
 }
 
 export enum PrimOp {
+    EMPTY_RESULT, // used to return no results
     EQUAL,
     NOT_EQUAL,
     GREATER_OR_EQUAL,

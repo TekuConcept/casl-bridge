@@ -100,7 +100,9 @@ export class MongoTreeBuilder {
         const root = new ScopedCondition({ alias: this.alias })
         this.conditionStack.push(root)
 
-        this.buildObject(this.query)
+        if (this.query === null || this.query === undefined)
+            this.buildNullCondition()
+        else this.buildObject(this.query)
         return this.conditionStack.pop()
     }
 
@@ -149,8 +151,10 @@ export class MongoTreeBuilder {
     }
 
     buildObject(obj: MongoQueryObjects) {
-        if (typeof obj !== 'object')
-            throw new Error(`Expected object, got ${typeof obj}`)
+        if (typeof obj !== 'object' || obj === null)
+            throw new Error(`Expected object, got ${
+                obj ? typeof obj : 'null'
+            }`)
 
         if (Array.isArray(obj))
             this.buildOperator('$and', obj)
@@ -221,6 +225,9 @@ export class MongoTreeBuilder {
         field: string,
         value: any
     ) {
+        // Skip undefined values
+        if (typeof value === 'undefined') return
+
         this.fieldStack.push(field)
 
         if (value === null)
@@ -341,6 +348,21 @@ export class MongoTreeBuilder {
             traceName: this.getTraceName(operatorName, column),
             operator,
             operand
+        })
+
+        scope.push(condition)
+    }
+
+    /** `WHERE 0 = 1`: return no results */
+    buildNullCondition() {
+        const scopeIndex = this.conditionStack.length - 1
+        const scope = this.conditionStack[scopeIndex]
+
+        const condition = new PrimitiveCondition({
+            column: null,
+            traceName: 'NULL',
+            operator: PrimOp.EMPTY_RESULT,
+            operand: null
         })
 
         scope.push(condition)

@@ -162,6 +162,11 @@ export class SimpleSerializer implements ISerializer {
         scopeInfo: ScopeInfo,
         condition: PrimitiveCondition
     ) {
+        if (condition.operator === PrimOp.EMPTY_RESULT) {
+            scopeInfo.builder.andWhere('FALSE')
+            return
+        }
+
         const { where } = scopeInfo
         const { alias, column, operator, operand } = condition
 

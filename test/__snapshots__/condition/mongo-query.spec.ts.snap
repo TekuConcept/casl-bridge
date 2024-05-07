@@ -12,7 +12,7 @@ exports[`MongoTreeBuilder examples query 2 should build queries with dot-notatio
     trace: TRACE: ? > id > $eq
     alias: __root__
     column: id
-    operator: 0
+    operator: 1
     operand: 2
   }
   condition [1] {
@@ -26,7 +26,7 @@ exports[`MongoTreeBuilder examples query 2 should build queries with dot-notatio
       trace: TRACE: ? > author > $and > id > $eq
       alias: __root___author
       column: id
-      operator: 0
+      operator: 1
       operand: 1
     }
     condition [1] {
@@ -34,7 +34,7 @@ exports[`MongoTreeBuilder examples query 2 should build queries with dot-notatio
       trace: TRACE: ? > author > $and > name > $eq
       alias: __root___author
       column: name
-      operator: 0
+      operator: 1
       operand: Lewis Carroll
     }
     condition [2] {
@@ -48,7 +48,7 @@ exports[`MongoTreeBuilder examples query 2 should build queries with dot-notatio
         trace: TRACE: ? > author > $and > comments > $and > id > $in
         alias: __root___author_comments
         column: id
-        operator: 8
+        operator: 9
         operand: 1,2
       }
     }
@@ -80,7 +80,7 @@ exports[`MongoTreeBuilder print should print a query 1`] = `
         trace: TRACE: ? > $and > $and > field > $eq
         alias: __root__
         column: field
-        operator: 0
+        operator: 1
         operand: 1
       }
     }
@@ -95,7 +95,7 @@ exports[`MongoTreeBuilder print should print a query 1`] = `
         trace: TRACE: ? > $and > $and > field2 > $eq
         alias: __root__
         column: field2
-        operator: 0
+        operator: 1
         operand: 2
       }
       condition [1] {
@@ -109,7 +109,7 @@ exports[`MongoTreeBuilder print should print a query 1`] = `
           trace: TRACE: ? > $and > $and > field3 > $and > id > $eq
           alias: __root___field3
           column: id
-          operator: 0
+          operator: 1
           operand: 3
         }
       }
