@@ -2,6 +2,7 @@
     "extends": "./tsconfig.base.json",
     "compilerOptions": {
         "module": "commonjs",
+        "forceConsistentCasingInFileNames": true,
         "noEmit": true,
         "rootDir": ".",
         "types": ["mocha", "node", "chai"]
