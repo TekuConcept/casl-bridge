@@ -4,6 +4,7 @@ import { ISerializer, SelectPattern } from './types'
 import {
     ConditionTree,
     ICondition,
+    LiteralCondition,
     PrimOp,
     PrimitiveCondition,
     ScopeOp,
@@ -60,7 +61,12 @@ export class SimpleSerializer implements ISerializer {
         scopeInfo: ScopeInfo,
         condition: ConditionTree
     ) {
-        if (condition.type === 'scoped')
+        if (condition.type === 'literal')
+            this.serializeLiteralCondition(
+                scopeInfo,
+                condition as LiteralCondition
+            )
+        else if (condition.type === 'scoped')
             this.serializeScopedCondition(
                 scopeInfo,
                 condition as ScopedCondition
@@ -69,6 +75,15 @@ export class SimpleSerializer implements ISerializer {
             scopeInfo,
             condition as PrimitiveCondition
         )
+    }
+
+    serializeLiteralCondition(
+        scopeInfo: ScopeInfo,
+        condition: LiteralCondition
+    ) {
+        // Use DB-agnostic SQL so the literals work across
+        // MySQL, SQLite, and Postgres.
+        scopeInfo.where(condition.value ? '(1=1)' : '(1=0)')
     }
 
     serializeScopedCondition(

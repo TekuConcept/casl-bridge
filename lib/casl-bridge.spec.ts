@@ -709,5 +709,265 @@ describe('CaslBridge', () => {
             }
             expect(opts.filterOptions).to.deep.equal({})
         })
+
+        it('FilterOptions should accept maxDepth and onViolation', () => {
+            const opts: FilterOptions = {
+                maxDepth: 2,
+                onViolation: 'false',
+            }
+            expect(opts.maxDepth).to.equal(2)
+            expect(opts.onViolation).to.equal('false')
+        })
+    })
+
+    describe('compileExternalFilterTree', () => {
+        describe('maxDepth', () => {
+            it('should not limit filters when maxDepth is undefined', async () => {
+                // A join-depth filter must succeed unchanged when
+                // filterOptions.maxDepth is not set.
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Book', {
+                    author: { id: { $gt: 0 } }
+                })
+
+                expect(shrink(query.getSql())).to.contain('LEFT JOIN')
+            })
+
+            it('should not limit CASL ability filters even when maxDepth=0', async () => {
+                // CASL rules that reference relations must work regardless
+                // of the external-filter maxDepth setting.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { 'author.id': { $gt: 0 } })
+                const ability = builder.build()
+
+                const bridge = new CaslBridge(db.source, ability)
+
+                // With maxDepth=0 on the *external* filter channel, the
+                // CASL query must still work and the deep join in the
+                // ability must survive serialisation.
+                expect(() => bridge.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filterOptions: { maxDepth: 0, onViolation: 'throw' },
+                })).to.not.throw()
+            })
+
+            describe('createQueryTo', () => {
+                it('should throw for deep external filter when onViolation=throw', () => {
+                    const bridge = new CaslBridge(db.source)
+                    expect(() => bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { author: { id: { $gt: 0 } } },
+                        filterOptions: { maxDepth: 0, onViolation: 'throw' },
+                    })).to.throw('Filter query exceeds maximum join depth of 0')
+                })
+
+                it('should default onViolation to throw when only maxDepth is set', () => {
+                    const bridge = new CaslBridge(db.source)
+                    expect(() => bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { author: { id: { $gt: 0 } } },
+                        filterOptions: { maxDepth: 0 },
+                    })).to.throw('Filter query exceeds maximum join depth of 0')
+                })
+
+                it('should replace deep branch with (1=0) when onViolation=false', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { author: { id: { $gt: 0 } } },
+                        filterOptions: { maxDepth: 0, onViolation: 'false' },
+                    })
+
+                    expect(shrink(query.getSql())).to.contain('(1=0)')
+                })
+
+                it('should strip deep branch and produce no WHERE when onViolation=strip', () => {
+                    const builder = new AbilityBuilder(createMongoAbility)
+                    builder.can('read', 'Book')
+                    const ability = builder.build()
+
+                    const bridge = new CaslBridge(db.source, ability)
+                    const query = bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { author: { id: { $gt: 0 } } },
+                        filterOptions: { maxDepth: 0, onViolation: 'strip' },
+                    })
+
+                    // The join filter is stripped; no WHERE clause from
+                    // the external filter (the CASL "allow all" query
+                    // also contributes no WHERE clause).
+                    expect(shrink(query.getSql())).to.not.contain('LEFT JOIN')
+                })
+
+                it('should preserve non-deep external filter when onViolation=false', () => {
+                    const builder = new AbilityBuilder(createMongoAbility)
+                    builder.can('read', 'Book')
+                    const ability = builder.build()
+
+                    const bridge = new CaslBridge(db.source, ability)
+                    const query = bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: {
+                            $or: [
+                                { author: { id: { $gt: 0 } } }, // deep → false
+                                { id: { $gt: 0 } },              // shallow → kept
+                            ]
+                        },
+                        filterOptions: { maxDepth: 0, onViolation: 'false' },
+                    })
+
+                    // author branch becomes false; OR(false, id>0) = id>0
+                    const sql = shrink(query.getSql())
+                    expect(sql).to.not.contain('(1=0)')
+                    expect(sql).to.contain('"id" > 0')
+                })
+
+                it('should leave SQL unchanged when maxDepth is not set', async () => {
+                    const builder = new AbilityBuilder(createMongoAbility)
+                    builder.can('read', 'Book')
+                    const ability = builder.build()
+
+                    const bridge = new CaslBridge(db.source, ability)
+
+                    const withoutOpts = bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { id: { $gt: 0 } },
+                    })
+                    const withEmptyOpts = bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { id: { $gt: 0 } },
+                        filterOptions: {},
+                    })
+
+                    expect(shrink(withoutOpts.getSql()))
+                        .to.equal(shrink(withEmptyOpts.getSql()))
+                })
+            })
+
+            describe('createFilterFor', () => {
+                it('should throw for deep filter when onViolation=throw', () => {
+                    const bridge = new CaslBridge(db.source)
+                    expect(() => bridge.createFilterFor(
+                        'Book',
+                        { author: { id: { $gt: 0 } } },
+                        '*',
+                        '__table__',
+                        { maxDepth: 0, onViolation: 'throw' },
+                    )).to.throw('Filter query exceeds maximum join depth of 0')
+                })
+
+                it('should emit (1=0) for all-deep filter when onViolation=false', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bridge.createFilterFor(
+                        'Book',
+                        { author: { id: { $gt: 0 } } },
+                        '*',
+                        '__table__',
+                        { maxDepth: 0, onViolation: 'false' },
+                    )
+
+                    expect(shrink(query.getSql())).to.contain('(1=0)')
+                })
+
+                it('should produce no WHERE for all-deep filter when onViolation=strip', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bridge.createFilterFor(
+                        'Book',
+                        { author: { id: { $gt: 0 } } },
+                        '*',
+                        '__table__',
+                        { maxDepth: 0, onViolation: 'strip' },
+                    )
+
+                    expect(shrink(query.getSql())).to.equal(
+                        shrink(`
+                            SELECT
+                                "__table__"."id"    AS "__table___id",
+                                "__table__"."title" AS "__table___title"
+                            FROM "book" "__table__"
+                        `)
+                    )
+                })
+
+                it('should leave SQL unchanged when maxDepth is not set', () => {
+                    const bridge = new CaslBridge(db.source)
+
+                    const without = bridge.createFilterFor('Book', { id: { $gt: 1 } })
+                    const withEmpty = bridge.createFilterFor('Book', { id: { $gt: 1 } }, '*', '__table__', {})
+
+                    expect(shrink(without.getSql())).to.equal(shrink(withEmpty.getSql()))
+                })
+            })
+
+            describe('applyFilterTo', () => {
+                it('should throw for deep filter when onViolation=throw', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bookRepo.createQueryBuilder('__table__')
+
+                    expect(() => bridge.applyFilterTo(
+                        query,
+                        '__table__',
+                        { author: { id: { $gt: 0 } } },
+                        { maxDepth: 0, onViolation: 'throw' },
+                    )).to.throw('Filter query exceeds maximum join depth of 0')
+                })
+
+                it('should emit (1=0) when onViolation=false', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bookRepo.createQueryBuilder('__table__')
+
+                    bridge.applyFilterTo(
+                        query,
+                        '__table__',
+                        { author: { id: { $gt: 0 } } },
+                        { maxDepth: 0, onViolation: 'false' },
+                    )
+
+                    expect(shrink(query.getSql())).to.contain('(1=0)')
+                })
+
+                it('should produce no WHERE for all-deep filter when onViolation=strip', () => {
+                    const bridge = new CaslBridge(db.source)
+                    const query = bookRepo.createQueryBuilder('__table__')
+
+                    bridge.applyFilterTo(
+                        query,
+                        '__table__',
+                        { author: { id: { $gt: 0 } } },
+                        { maxDepth: 0, onViolation: 'strip' },
+                    )
+
+                    expect(shrink(query.getSql())).to.equal(
+                        shrink(`
+                            SELECT
+                                "__table__"."id"       AS "__table___id",
+                                "__table__"."title"    AS "__table___title",
+                                "__table__"."authorId" AS "__table___authorId"
+                            FROM "book" "__table__"
+                        `)
+                    )
+                })
+
+                it('should leave SQL unchanged when maxDepth is not set', () => {
+                    const bridge = new CaslBridge(db.source)
+
+                    const q1 = bookRepo.createQueryBuilder('__table__')
+                    bridge.applyFilterTo(q1, '__table__', { id: { $gt: 1 } })
+
+                    const q2 = bookRepo.createQueryBuilder('__table__')
+                    bridge.applyFilterTo(q2, '__table__', { id: { $gt: 1 } }, {})
+
+                    expect(shrink(q1.getSql())).to.equal(shrink(q2.getSql()))
+                })
+            })
+        })
     })
 })
