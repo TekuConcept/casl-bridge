@@ -22,10 +22,28 @@ export type CaslGateBuilder = AbilityBuilder<CaslGate>
  * current default behaviour.
  */
 export interface FilterOptions {
-    // Extension point – additional fields will be added in
-    // future PRs.  Keeping this as an empty interface now
-    // ensures that call-sites can already pass it without
-    // requiring further signature changes later.
+    /**
+     * Maximum number of join-scope hops (relation hops) permitted in
+     * an external filter tree.  Depth is measured as the number of
+     * `join = true` ScopedCondition ancestors above a node (root = 0).
+     *
+     * When `undefined` (the default) no depth limit is enforced and
+     * existing SQL output is unchanged.
+     */
+    maxDepth?: number
+
+    /**
+     * How to respond when a filter branch exceeds `maxDepth`.
+     * Only relevant when `maxDepth` is set.
+     *
+     * - `"throw"` (default, enforced at runtime in `DepthLimiter`) – throw an `Error` immediately.
+     * - `"false"` – replace the violating branch with a constant-false
+     *               condition, then simplify the surrounding boolean
+     *               context (e.g. `OR(false, x) ⇒ x`).
+     * - `"strip"` – remove the violating branch entirely.  If all
+     *               branches are removed the scope emits no WHERE clause.
+     */
+    onViolation?: 'throw' | 'false' | 'strip'
 }
 
 export interface QueryOptions {

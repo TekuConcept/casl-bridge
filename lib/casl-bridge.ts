@@ -13,6 +13,7 @@ import {
     MongoQueryObject,
     MongoQueryObjects,
 } from './condition'
+import { DepthLimiter } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
 
@@ -293,21 +294,35 @@ export class CaslBridge {
     }
 
     /**
-     * Builds a ConditionTree from an external filter object.
-     * This is the single internal entry point for constructing
-     * filter trees; future PRs will add transformation logic here.
+     * Builds a ConditionTree from an external filter object and
+     * applies any depth limiting specified in `filterOptions`.
      *
-     * @param filters The raw Mongo-style filter object.
-     * @param alias   The table alias to use in the tree.
-     * @param _filterOptions Reserved for future use.
+     * This is the single internal entry point for constructing
+     * external filter trees.  CASL ability trees bypass this method
+     * entirely and are therefore unaffected by `maxDepth`.
+     *
+     * @param filters       The raw Mongo-style filter object.
+     * @param alias         The table alias to use in the tree.
+     * @param filterOptions Options controlling depth limiting and
+     *                      violation behaviour.
      */
     private compileExternalFilterTree(
         filters: MongoQueryObjects,
         alias: string,
-        _filterOptions?: FilterOptions | null,
+        filterOptions?: FilterOptions | null,
     ) {
         const filterQuery = new MongoQuery(filters)
-        return filterQuery.build(alias)
+        const tree = filterQuery.build(alias)
+
+        if (filterOptions?.maxDepth !== undefined) {
+            const limiter = new DepthLimiter(
+                filterOptions.maxDepth,
+                filterOptions.onViolation ?? 'throw',
+            )
+            return limiter.apply(tree)
+        }
+
+        return tree
     }
 
     /**

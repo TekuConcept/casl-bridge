@@ -633,4 +633,47 @@ describe('SimpleSerializer', () => {
                 .to.throw('Unknown operator unknown')
         })
     })
+
+    describe('serializeLiteralCondition', () => {
+        let scopeInfo: any
+
+        beforeEach(() => {
+            const builder = table.createQueryBuilder('__test__')
+            scopeInfo = {
+                shared: { counter: 0 },
+                table,
+                builder,
+                where: builder.andWhere.bind(builder)
+            }
+            builder.select([]) // clear the selection to 'SELECT *'
+        })
+
+        it('should serialize LiteralCondition(false) as (1=0)', () => {
+            const condition = new (require('@/condition').LiteralCondition)(false)
+
+            serializer.serializeLiteralCondition(scopeInfo, condition)
+            expect(shrink(scopeInfo.builder.data.getQuery())).to.equal(
+                shrink('SELECT * FROM "book" "__test__" WHERE (1=0)')
+            )
+        })
+
+        it('should serialize LiteralCondition(true) as (1=1)', () => {
+            const condition = new (require('@/condition').LiteralCondition)(true)
+
+            serializer.serializeLiteralCondition(scopeInfo, condition)
+            expect(shrink(scopeInfo.builder.data.getQuery())).to.equal(
+                shrink('SELECT * FROM "book" "__test__" WHERE (1=1)')
+            )
+        })
+
+        it('should be dispatched from serializeCondition', () => {
+            const condition = new (require('@/condition').LiteralCondition)(false)
+            const spy = sinon.stub(serializer, 'serializeLiteralCondition')
+
+            serializer.serializeCondition(scopeInfo, condition)
+            expect(spy.calledOnceWith(scopeInfo, condition)).to.be.true
+
+            spy.restore()
+        })
+    })
 })
