@@ -26,7 +26,7 @@ export class CaslBridge {
         /** The (TypeORM) ORM source */
         public readonly manager: DataSource | EntityManager,
         /** (Optional) pre-built casl ability */
-        casl?: CaslGate,
+        casl?: CaslGate | null,
         /**
          * @deprecated
          * Whether to escape quote chars and encode aliases.
@@ -215,10 +215,10 @@ export class CaslBridge {
      */
     createFilterFor(
         subject: SubjectType,
-        filters: FilterObject,
+        filters: FilterObject | null,
         selectPatten: SelectPattern = '*',
         alias = '__table__',
-        filterOptions?: FilterOptions,
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         const table = TypeOrmTableInfo.createFrom(
             this.manager, subject)
@@ -262,8 +262,8 @@ export class CaslBridge {
     applyFilterTo(
         query: SelectQueryBuilder<any>,
         aliasName: string,
-        filters: FilterObject,
-        filterOptions?: FilterOptions,
+        filters: FilterObject | null,
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         if (!filters) return query
 
@@ -304,7 +304,7 @@ export class CaslBridge {
     private compileExternalFilterTree(
         filters: MongoQueryObjects,
         alias: string,
-        _filterOptions?: FilterOptions,
+        _filterOptions?: FilterOptions | null,
     ) {
         const filterQuery = new MongoQuery(filters)
         return filterQuery.build(alias)

@@ -390,7 +390,7 @@ describe('CaslBridge', () => {
         })
 
         it('should throw if no subject provided', () => {
-            delete options.subject
+            options.subject = undefined as any
             expect(() => bridge['getOptions'](options)).to.throw()
         })
 
