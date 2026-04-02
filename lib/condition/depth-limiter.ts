@@ -116,6 +116,12 @@ export class DepthLimiter {
                 newConditions.push(result)
             }
             // null ⇒ stripped: do not add to newConditions
+
+            // If the child was stripped or replaced by a new node, unlink the
+            // original to break circular parent↔child references and allow GC.
+            if (result !== (child as ConditionTree)) {
+                child.unlink()
+            }
         }
         scoped.conditions = newConditions
 
@@ -161,6 +167,9 @@ export class DepthLimiter {
             const andRest = conditions.filter(
                 c => c.type !== 'literal' || !(c as LiteralCondition).value
             )
+            conditions
+                .filter(c => c.type === 'literal' && (c as LiteralCondition).value)
+                .forEach(c => c.unlink())
             scoped.conditions = andRest
             // All children were true literals → AND(true,…,true) = true = no constraint
             if (andRest.length === 0) return null
@@ -174,6 +183,9 @@ export class DepthLimiter {
             const orRest = conditions.filter(
                 c => c.type !== 'literal' || (c as LiteralCondition).value
             )
+            conditions
+                .filter(c => c.type === 'literal' && !(c as LiteralCondition).value)
+                .forEach(c => c.unlink())
             scoped.conditions = orRest
             // All children were false literals → OR(false,…,false) = false
             if (orRest.length === 0) return new LiteralCondition(false)
