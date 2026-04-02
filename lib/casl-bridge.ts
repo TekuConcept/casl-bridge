@@ -6,7 +6,7 @@ import {
     SubjectType,
     createMongoAbility
 } from '@casl/ability'
-import { CaslGate, QueryOptions } from './types'
+import { CaslGate, FilterOptions, QueryOptions } from './types'
 import { SelectPattern } from './serializer/types'
 import {
     MongoQuery,
@@ -26,7 +26,7 @@ export class CaslBridge {
         /** The (TypeORM) ORM source */
         public readonly manager: DataSource | EntityManager,
         /** (Optional) pre-built casl ability */
-        casl?: CaslGate,
+        casl?: CaslGate | null,
         /**
          * @deprecated
          * Whether to escape quote chars and encode aliases.
@@ -182,8 +182,11 @@ export class CaslBridge {
         const query = serializer.serialize(tree)
 
         if (options.filters) {
-            const filterQuery = new MongoQuery(options.filters)
-            const filterTree = filterQuery.build(options.table)
+            const filterTree = this.compileExternalFilterTree(
+                options.filters,
+                options.table,
+                options.filterOptions
+            )
             serializer.serializeWith(query, filterTree)
             filterTree.unlink()
         }
@@ -212,16 +215,20 @@ export class CaslBridge {
      */
     createFilterFor(
         subject: SubjectType,
-        filters: FilterObject,
+        filters: FilterObject | null,
         selectPatten: SelectPattern = '*',
-        alias = '__table__'
+        alias = '__table__',
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         const table = TypeOrmTableInfo.createFrom(
             this.manager, subject)
         const serializer = new SimpleSerializer(table)
 
-        const filterQuery = new MongoQuery(filters ?? {})
-        const filterTree = filterQuery.build(alias)
+        const filterTree = this.compileExternalFilterTree(
+            filters ?? {},
+            alias,
+            filterOptions
+        )
 
         const query = serializer.serialize(filterTree)
         serializer.select(query, filterTree, selectPatten)
@@ -255,7 +262,8 @@ export class CaslBridge {
     applyFilterTo(
         query: SelectQueryBuilder<any>,
         aliasName: string,
-        filters: FilterObject,
+        filters: FilterObject | null,
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         if (!filters) return query
 
@@ -264,8 +272,11 @@ export class CaslBridge {
         const table = TypeOrmTableInfo.createFrom(
             this.manager, alias.target)
         const serializer = new SimpleSerializer(table)
-        const filterQuery = new MongoQuery(filters)
-        const filterTree = filterQuery.build(aliasName)
+        const filterTree = this.compileExternalFilterTree(
+            filters,
+            aliasName,
+            filterOptions
+        )
 
         const join = TypeOrmTableInfo.createJoinFunction(query)
         const queryBuilder = new TypeOrmQueryBuilder(
@@ -279,6 +290,24 @@ export class CaslBridge {
         filterTree.unlink()
 
         return query
+    }
+
+    /**
+     * Builds a ConditionTree from an external filter object.
+     * This is the single internal entry point for constructing
+     * filter trees; future PRs will add transformation logic here.
+     *
+     * @param filters The raw Mongo-style filter object.
+     * @param alias   The table alias to use in the tree.
+     * @param _filterOptions Reserved for future use.
+     */
+    private compileExternalFilterTree(
+        filters: MongoQueryObjects,
+        alias: string,
+        _filterOptions?: FilterOptions | null,
+    ) {
+        const filterQuery = new MongoQuery(filters)
+        return filterQuery.build(alias)
     }
 
     /**

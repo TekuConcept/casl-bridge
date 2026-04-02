@@ -5,10 +5,13 @@
         "forceConsistentCasingInFileNames": true,
         "noEmit": true,
         "rootDir": ".",
-        "types": ["mocha", "node"]
+        "types": ["mocha", "node", "chai"]
     },
     "include": [
         "lib/**/*.ts",
+        "lib/**/*.d.ts",
+        "test/**/*.ts",
+        "test/**/*.d.ts",
         "mocha.ts"
     ]
 }
