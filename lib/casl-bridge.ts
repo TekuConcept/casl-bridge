@@ -17,7 +17,7 @@ import {
     Selected
 } from './types'
 import { AnyAbility, SubjectType } from '@casl/ability'
-import { Rule } from '@casl/ability/dist/types/Rule'
+import { Rule } from '@casl/ability'
 
 export class CaslBridge {
     constructor(

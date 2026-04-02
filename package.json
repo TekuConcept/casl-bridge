@@ -6,6 +6,7 @@
   "typings": "./index.d.ts",
   "scripts": {
     "test": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register 'lib/**/*.spec.ts'",
+    "test:": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register",
     "test:cov": "c8 npm run test",
     "build": "tsc"
   },
@@ -30,7 +31,7 @@
     "@faker-js/faker": "^8.4.1",
     "@types/chai": "^4.3.14",
     "@types/lodash": "^4.17.0",
-    "@types/mocha": "^10.0.6",
+    "@types/mocha": "^10.0.10",
     "@types/sinon": "^17.0.3",
     "better-sqlite3": "^9.5.0",
     "c8": "^9.1.0",
@@ -40,7 +41,8 @@
     "mocha-chai-jest-snapshot": "^1.1.4",
     "sinon": "^17.0.1",
     "ts-mocha": "^10.0.0",
-    "typescript": "^5.4.5"
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
   },
   "dependencies": {
     "@casl/ability": "^6.7.1",
