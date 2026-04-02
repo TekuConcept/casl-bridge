@@ -13,7 +13,7 @@ import {
     MongoQueryObject,
     MongoQueryObjects,
 } from './condition'
-import { DepthLimiter } from './condition'
+import { DepthLimiter, PathPolicyEnforcer } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
 
@@ -312,14 +312,22 @@ export class CaslBridge {
         filterOptions?: FilterOptions | null,
     ) {
         const filterQuery = new MongoQuery(filters)
-        const tree = filterQuery.build(alias)
+        let tree = filterQuery.build(alias)
 
         if (filterOptions?.maxDepth !== undefined) {
             const limiter = new DepthLimiter(
                 filterOptions.maxDepth,
                 filterOptions.onViolation ?? 'throw',
             )
-            return limiter.apply(tree)
+            tree = limiter.apply(tree)
+        }
+
+        if (filterOptions?.pathPolicy !== undefined) {
+            const enforcer = new PathPolicyEnforcer(
+                filterOptions.pathPolicy,
+                filterOptions.onViolation ?? 'throw',
+            )
+            tree = enforcer.apply(tree)
         }
 
         return tree

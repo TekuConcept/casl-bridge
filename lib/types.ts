@@ -17,6 +17,44 @@ export type CaslGate = MongoAbility<AbilityTuple, MongoQuery>
 export type CaslGateBuilder = AbilityBuilder<CaslGate>
 
 /**
+ * A single path-based access rule used in a {@link PathPolicy}.
+ *
+ * `path` may be:
+ *  - an exact dotted field path, e.g. `"author.name"`
+ *  - a descendant wildcard, e.g. `"author.**"` (matches any path
+ *    that starts with `"author."`)
+ */
+export interface PathPolicyRule {
+    /** The path pattern to match against. */
+    path: string
+    /** Whether to allow or deny access when this rule matches. */
+    decision: 'allow' | 'deny'
+}
+
+/**
+ * Restricts which field paths may appear in external filters.
+ * Rules are evaluated in order; the first matching rule wins.
+ * If no rule matches the `default` policy applies (defaults to `"allow"`).
+ *
+ * Example – deny all `author.*` access:
+ * ```ts
+ * {
+ *   default: 'allow',
+ *   rules: [{ path: 'author.**', decision: 'deny' }]
+ * }
+ * ```
+ */
+export interface PathPolicy {
+    /**
+     * Fallback decision when no rule matches a given path.
+     * Defaults to `"allow"` when omitted.
+     */
+    default?: 'allow' | 'deny'
+    /** Ordered list of path rules. First match wins. */
+    rules?: PathPolicyRule[]
+}
+
+/**
  * Options that govern how the external filter tree is built
  * and applied. All fields are optional; unset fields use the
  * current default behaviour.
@@ -33,10 +71,11 @@ export interface FilterOptions {
     maxDepth?: number
 
     /**
-     * How to respond when a filter branch exceeds `maxDepth`.
-     * Only relevant when `maxDepth` is set.
+     * How to respond when a filter branch exceeds `maxDepth` or
+     * violates a `pathPolicy` rule.
+     * Only relevant when `maxDepth` or `pathPolicy` is set.
      *
-     * - `"throw"` (default, enforced at runtime in `DepthLimiter`) – throw an `Error` immediately.
+     * - `"throw"` (default) – throw an `Error` immediately.
      * - `"false"` – replace the violating branch with a constant-false
      *               condition, then simplify the surrounding boolean
      *               context (e.g. `OR(false, x) ⇒ x`).
@@ -44,6 +83,15 @@ export interface FilterOptions {
      *               branches are removed the scope emits no WHERE clause.
      */
     onViolation?: 'throw' | 'false' | 'strip'
+
+    /**
+     * Restricts which field paths may appear in external filters.
+     * When `undefined` (the default) all paths are permitted and
+     * existing SQL output is unchanged.
+     *
+     * Enforcement uses the same {@link onViolation} mode as depth limiting.
+     */
+    pathPolicy?: PathPolicy
 }
 
 export interface QueryOptions {
