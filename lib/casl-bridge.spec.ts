@@ -1,10 +1,11 @@
 import 'mocha'
 import { expect } from 'chai'
+import * as sinon from 'sinon'
 import { CaslBridge } from './casl-bridge'
 import { Book, TestDatabase } from './test-db'
 import { AbilityBuilder, createMongoAbility } from '@casl/ability'
 import { Repository } from 'typeorm'
-import { QueryOptions } from './types'
+import { FilterOptions, QueryOptions } from './types'
 
 describe('CaslBridge', () => {
     let db: TestDatabase
@@ -520,6 +521,145 @@ describe('CaslBridge', () => {
             expected.select = { title: true }
             expected.field = undefined
             expect(merged).to.deep.equal(expected)
+        })
+    })
+
+    describe('filterOptions wiring', () => {
+        let bridge: CaslBridge
+        let compileSpy: sinon.SinonSpy
+
+        beforeEach(() => {
+            bridge = new CaslBridge(db.source)
+            compileSpy = sinon.spy(bridge as any, 'compileExternalFilterTree')
+        })
+        afterEach(() => compileSpy.restore())
+
+        it('FilterOptions type should be assignable to an empty object', () => {
+            const opts: FilterOptions = {}
+            expect(opts).to.deep.equal({})
+        })
+
+        it('QueryOptions should accept filterOptions', () => {
+            const opts: QueryOptions = {
+                subject: 'Book',
+                filterOptions: {},
+            }
+            expect(opts.filterOptions).to.deep.equal({})
+        })
+
+        it('createQueryTo should pass filterOptions to compileExternalFilterTree', () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book')
+            const ability = builder.build()
+            const b = new CaslBridge(db.source, ability)
+            const spy = sinon.spy(b as any, 'compileExternalFilterTree')
+            const filterOpts: FilterOptions = {}
+
+            b.createQueryTo({
+                action: 'read',
+                subject: 'Book',
+                filters: { id: 1 },
+                filterOptions: filterOpts,
+            })
+
+            expect(spy.calledOnce).to.be.true
+            expect(spy.firstCall.args[2]).to.equal(filterOpts)
+            spy.restore()
+        })
+
+        it('createQueryTo should produce unchanged SQL with filterOptions set', async () => {
+            const builder = new AbilityBuilder(createMongoAbility)
+            builder.can('read', 'Book')
+            const ability = builder.build()
+            const b = new CaslBridge(db.source, ability)
+
+            const query = b.createQueryTo({
+                action: 'read',
+                subject: 'Book',
+                filterOptions: {},
+            })
+
+            expect(shrink(query.getQuery())).to.equal(
+                shrink(`
+                    SELECT
+                        "__table__"."id"    AS "__table___id",
+                        "__table__"."title" AS "__table___title"
+                    FROM "book" "__table__"
+                `)
+            )
+        })
+
+        it('createFilterFor should pass filterOptions to compileExternalFilterTree', () => {
+            const filterOpts: FilterOptions = {}
+
+            bridge.createFilterFor(
+                'Book',
+                { id: { $gt: 1, $lt: 5 } },
+                '*',
+                '__table__',
+                filterOpts
+            )
+
+            expect(compileSpy.calledOnce).to.be.true
+            expect(compileSpy.firstCall.args[2]).to.equal(filterOpts)
+        })
+
+        it('createFilterFor should produce unchanged SQL with filterOptions set', () => {
+            const filter = bridge.createFilterFor(
+                'Book',
+                { id: { $gt: 1, $lt: 5 } },
+                '*',
+                '__table__',
+                {}
+            )
+
+            expect(shrink(filter.getSql())).to.equal(
+                shrink(`
+                    SELECT
+                        "__table__"."id"    AS "__table___id",
+                        "__table__"."title" AS "__table___title"
+                    FROM "book" "__table__"
+                    WHERE ("__table__"."id" > 1 AND
+                           "__table__"."id" < 5)
+                `)
+            )
+        })
+
+        it('applyFilterTo should pass filterOptions to compileExternalFilterTree', () => {
+            const query = bookRepo.createQueryBuilder('__table__')
+            const filterOpts: FilterOptions = {}
+
+            bridge.applyFilterTo(
+                query,
+                '__table__',
+                { id: { $gt: 1, $lt: 5 } },
+                filterOpts
+            )
+
+            expect(compileSpy.calledOnce).to.be.true
+            expect(compileSpy.firstCall.args[2]).to.equal(filterOpts)
+        })
+
+        it('applyFilterTo should produce unchanged SQL with filterOptions set', () => {
+            const query = bookRepo.createQueryBuilder('__table__')
+            const filtered = bridge.applyFilterTo(
+                query,
+                '__table__',
+                { id: { $gt: 1, $lt: 5 } },
+                {}
+            )
+
+            expect(shrink(filtered.getSql())).to.equal(
+                shrink(`
+                    SELECT
+                        "__table__"."id"       AS "__table___id",
+                        "__table__"."title"    AS "__table___title",
+                        "__table__"."authorId" AS "__table___authorId"
+                    FROM "book" "__table__"
+                    WHERE ("__table__"."id" > 1 AND
+                           "__table__"."id" < 5)
+                `)
+            )
         })
     })
 

@@ -16,6 +16,18 @@ export type CaslRule = SubjectRawRule<
 export type CaslGate = MongoAbility<AbilityTuple, MongoQuery>
 export type CaslGateBuilder = AbilityBuilder<CaslGate>
 
+/**
+ * Options that govern how the external filter tree is built
+ * and applied. All fields are optional; unset fields use the
+ * current default behaviour.
+ */
+export interface FilterOptions {
+    // Extension point – additional fields will be added in
+    // future PRs.  Keeping this as an empty interface now
+    // ensures that call-sites can already pass it without
+    // requiring further signature changes later.
+}
+
 export interface QueryOptions {
     /**
      * Table alias to use in the query.
@@ -63,6 +75,12 @@ export interface QueryOptions {
      * ```
      */
     filters?: MongoQueryObjects,
+    /**
+     * Options that control how external filter conditions are
+     * compiled and applied. Passed through to
+     * `compileExternalFilterTree` internally.
+     */
+    filterOptions?: FilterOptions,
     /**
      * @deprecated
      * Whether to use strict validation for column names.
