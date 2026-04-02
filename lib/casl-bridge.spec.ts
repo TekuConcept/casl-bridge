@@ -5,7 +5,7 @@ import { CaslBridge } from './casl-bridge'
 import { Book, TestDatabase } from './test-db'
 import { AbilityBuilder, createMongoAbility } from '@casl/ability'
 import { Repository } from 'typeorm'
-import { FilterOptions, QueryOptions } from './types'
+import { FilterOptions, PathPolicy, QueryOptions } from './types'
 
 describe('CaslBridge', () => {
     let db: TestDatabase
@@ -293,6 +293,123 @@ describe('CaslBridge', () => {
                 `)
             )
         })
+
+        describe('pathPolicy', () => {
+            it('should produce unchanged SQL when pathPolicy is undefined', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: 1 },
+                })
+
+                // When CASL allows all, it emits '1=1'; external filter appended via AND.
+                expect(shrink(query.getSql())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"    AS "__table___id",
+                            "__table__"."title" AS "__table___title"
+                        FROM "book" "__table__"
+                        WHERE 1=1 AND
+                            ("__table__"."id" = 1)
+                    `)
+                )
+            })
+
+            it('should throw by default when pathPolicy onViolation is omitted', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                // onViolation omitted → defaults to 'throw'
+                expect(() => b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: 1 },
+                    filterOptions: { pathPolicy: policy },
+                })).to.throw('Filter path "id" is not permitted by PathPolicy')
+            })
+
+            it('should strip a denied filter field when onViolation is strip', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: 1 },
+                    filterOptions: { pathPolicy: policy, onViolation: 'strip' },
+                })
+
+                // denied field stripped → external filter produces no WHERE contribution
+                // (serializer emits 1=1 for the empty stripped tree, same as a no-filter query)
+                expect(shrink(query.getSql())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"    AS "__table___id",
+                            "__table__"."title" AS "__table___title"
+                        FROM "book" "__table__"
+                        WHERE 1=1 AND 1=1
+                    `)
+                )
+            })
+
+            it('should replace a denied filter field with (1=0) when onViolation is false', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: 1 },
+                    filterOptions: { pathPolicy: policy, onViolation: 'false' },
+                })
+
+                expect(shrink(query.getSql())).to.contain('1=0')
+            })
+
+            it('should not restrict CASL ability conditions', () => {
+                // CASL-derived filters bypass compileExternalFilterTree
+                // and must be unaffected by pathPolicy.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { id: 1 })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                // deny 'id' in external filters — CASL condition must still appear
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                expect(() => b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filterOptions: { pathPolicy: policy, onViolation: 'throw' },
+                    // no 'filters' here — CASL condition is not external
+                })).to.not.throw()
+            })
+        })
     })
 
     describe('createFilterFor', () => {
@@ -388,6 +505,79 @@ describe('CaslBridge', () => {
                            "__table__"."id" < 5)
                 `)
             )
+        })
+
+        describe('pathPolicy', () => {
+            it('should produce unchanged SQL when pathPolicy is undefined', () => {
+                const filter = bridge.createFilterFor(
+                    'Book',
+                    { id: { $gt: 1, $lt: 5 } },
+                )
+
+                expect(shrink(filter.getSql())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"    AS "__table___id",
+                            "__table__"."title" AS "__table___title"
+                        FROM "book" "__table__"
+                        WHERE ("__table__"."id" > 1 AND
+                               "__table__"."id" < 5)
+                    `)
+                )
+            })
+
+            it('should throw when a filter field is denied by pathPolicy', () => {
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                expect(() => bridge.createFilterFor(
+                    'Book',
+                    { id: { $gt: 1, $lt: 5 } },
+                    '*',
+                    '__table__',
+                    { pathPolicy: policy, onViolation: 'throw' },
+                )).to.throw('Filter path "id" is not permitted by PathPolicy')
+            })
+
+            it('should strip a denied field when onViolation is strip', () => {
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const filter = bridge.createFilterFor(
+                    'Book',
+                    { id: { $gt: 1, $lt: 5 } },
+                    '*',
+                    '__table__',
+                    { pathPolicy: policy, onViolation: 'strip' },
+                )
+
+                expect(shrink(filter.getQuery())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"    AS "__table___id",
+                            "__table__"."title" AS "__table___title"
+                        FROM "book" "__table__"
+                    `)
+                )
+            })
+
+            it('should replace a denied field with (1=0) when onViolation is false', () => {
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const filter = bridge.createFilterFor(
+                    'Book',
+                    { id: { $gt: 1, $lt: 5 } },
+                    '*',
+                    '__table__',
+                    { pathPolicy: policy, onViolation: 'false' },
+                )
+
+                expect(shrink(filter.getSql())).to.contain('1=0')
+            })
         })
     })
 
@@ -503,6 +693,84 @@ describe('CaslBridge', () => {
                            "__table__"."id" < 5)
                 `)
             )
+        })
+
+        describe('pathPolicy', () => {
+            it('should produce unchanged SQL when pathPolicy is undefined', () => {
+                const query = bookRepo.createQueryBuilder('__table__')
+                const filtered = bridge.applyFilterTo(
+                    query,
+                    '__table__',
+                    { id: { $gt: 1, $lt: 5 } },
+                )
+
+                expect(shrink(filtered.getSql())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"       AS "__table___id",
+                            "__table__"."title"    AS "__table___title",
+                            "__table__"."authorId" AS "__table___authorId"
+                        FROM "book" "__table__"
+                        WHERE ("__table__"."id" > 1 AND
+                               "__table__"."id" < 5)
+                    `)
+                )
+            })
+
+            it('should throw when a filter field is denied by pathPolicy', () => {
+                const query = bookRepo.createQueryBuilder('__table__')
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                expect(() => bridge.applyFilterTo(
+                    query,
+                    '__table__',
+                    { id: { $gt: 1, $lt: 5 } },
+                    { pathPolicy: policy, onViolation: 'throw' },
+                )).to.throw('Filter path "id" is not permitted by PathPolicy')
+            })
+
+            it('should strip a denied field when onViolation is strip', () => {
+                const query = bookRepo.createQueryBuilder('__table__')
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const filtered = bridge.applyFilterTo(
+                    query,
+                    '__table__',
+                    { id: { $gt: 1, $lt: 5 } },
+                    { pathPolicy: policy, onViolation: 'strip' },
+                )
+
+                // denied field stripped → no WHERE clause added by applyFilterTo
+                expect(shrink(filtered.getQuery())).to.equal(
+                    shrink(`
+                        SELECT
+                            "__table__"."id"       AS "__table___id",
+                            "__table__"."title"    AS "__table___title",
+                            "__table__"."authorId" AS "__table___authorId"
+                        FROM "book" "__table__"
+                    `)
+                )
+            })
+
+            it('should replace a denied field with (1=0) when onViolation is false', () => {
+                const query = bookRepo.createQueryBuilder('__table__')
+                const policy: PathPolicy = {
+                    rules: [{ path: 'id', decision: 'deny' }],
+                }
+
+                const filtered = bridge.applyFilterTo(
+                    query,
+                    '__table__',
+                    { id: { $gt: 1, $lt: 5 } },
+                    { pathPolicy: policy, onViolation: 'false' },
+                )
+
+                expect(shrink(filtered.getSql())).to.contain('1=0')
+            })
         })
     })
 
