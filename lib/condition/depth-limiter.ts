@@ -181,12 +181,10 @@ export class DepthLimiter {
         }
         case ScopeOp.NOT: {
             // NOT should wrap exactly one child in valid trees.
-            const literal = literals[0]
-            if (literal) return new LiteralCondition(!literal.value)
-            return scoped
+            // Because we only enter simplify() when literals.length > 0,
+            // literals[0] is always defined here.
+            return new LiteralCondition(!literals[0].value)
         }
         }
-
-        return scoped
     }
 }

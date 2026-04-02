@@ -763,6 +763,16 @@ describe('CaslBridge', () => {
                     })).to.throw('Filter query exceeds maximum join depth of 0')
                 })
 
+                it('should default onViolation to throw when only maxDepth is set', () => {
+                    const bridge = new CaslBridge(db.source)
+                    expect(() => bridge.createQueryTo({
+                        action: 'read',
+                        subject: 'Book',
+                        filters: { author: { id: { $gt: 0 } } },
+                        filterOptions: { maxDepth: 0 },
+                    })).to.throw('Filter query exceeds maximum join depth of 0')
+                })
+
                 it('should replace deep branch with (1=0) when onViolation=false', () => {
                     const bridge = new CaslBridge(db.source)
                     const query = bridge.createQueryTo({
