@@ -5,8 +5,8 @@
   "main": "dist/lib/index.js",
   "typings": "./index.d.ts",
   "scripts": {
-    "test": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register 'lib/**/*.spec.ts'",
-    "test:": "ts-mocha --file mocha.ts -p tsconfig.test.json -r tsconfig-paths/register",
+    "test": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts 'lib/**/*.spec.ts'",
+    "test:": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts",
     "test:cov": "c8 npm run test",
     "build": "tsc"
   },
@@ -33,7 +33,7 @@
     "@types/lodash": "^4.17.0",
     "@types/mocha": "^10.0.10",
     "@types/sinon": "^17.0.3",
-    "better-sqlite3": "^9.5.0",
+    "better-sqlite3": "^12.8.0",
     "c8": "^9.1.0",
     "chai": "^4.3.7",
     "lodash": "^4.17.21",

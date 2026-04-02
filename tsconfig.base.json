@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "module": "commonjs",
+        "moduleResolution": "node10",
         "declaration": true,
         "removeComments": true,
         "emitDecoratorMetadata": true,
@@ -17,7 +18,8 @@
         "noFallthroughCasesInSwitch": false,
 
         "baseUrl": ".",
-        "paths": { "@/*": ["./lib/*"] }
+        "paths": { "@/*": ["./lib/*"] },
+        "ignoreDeprecations": "6.0"
     },
     "include": [
         "lib/**/*.ts"
