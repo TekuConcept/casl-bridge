@@ -7,14 +7,8 @@ import {
     Subject,
     SubjectRawRule
 } from '@casl/ability'
-import {
-    Brackets,
-    ObjectLiteral,
-    Repository,
-    SelectQueryBuilder,
-    WhereExpressionBuilder
-} from 'typeorm'
-import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
+import { SelectPattern } from './serializer/types'
+import { MongoQueryObjects } from './condition'
 
 export type CaslRule = SubjectRawRule<
     string, ExtractSubjectType<Subject>, MongoQuery
@@ -22,102 +16,59 @@ export type CaslRule = SubjectRawRule<
 export type CaslGate = MongoAbility<AbilityTuple, MongoQuery>
 export type CaslGateBuilder = AbilityBuilder<CaslGate>
 
-export type Primitive =
-    object |
-    string |
-    number |
-    boolean |
-    null |
-    undefined |
-    Date
-
-export interface MongoFields {
-    [key: string]: MongoQueryObject | Primitive
-}
-
-export interface MongoQueryObject {
-    '$eq'?: Primitive
-    '$ne'?: Primitive
-    '$gte'?: Primitive
-    '$gt'?: Primitive
-    '$lte'?: Primitive
-    '$lt'?: Primitive
-    '$not'?: MongoFields
-    '$is'?: null
-    '$isNot'?: null
-    '$in'?: Primitive[]
-    '$notIn'?: Primitive[]
-    '$like'?: string
-    '$notLike'?: string
-    '$iLike'?: string
-    '$notILike'?: string
-    '$regex'?: string
-    '$regexp'?: string
-    '$notRegex'?: string
-    '$notRegexp'?: string
-    '$iRegexp'?: string
-    '$notIRegexp'?: string
-    '$between'?: [Primitive, Primitive]
-    '$notBetween'?: [Primitive, Primitive]
-    '$and'?: MongoFields | MongoFields[]
-    '$or'?: MongoFields | MongoFields[]
-    '$size'?: number
-}
-
-export type Selected = boolean | SelectMap
-export interface SelectMap { [column: string]: Selected }
-
-export interface QueryState {
-    builder: WhereExpressionBuilder
-    and: boolean // is is andWhere or orWhere
-    where: (
-        where: string | Brackets,
-        parameters?: ObjectLiteral
-    ) => WhereExpressionBuilder
-    aliasID: number
-    columnID?: number
-    repo: Repository<any>
-    selectMap: Selected
-}
-
-export interface QueryContext {
-    // the incremental parameter index
-    parameter: number
-    // the alias of the current table
-    table: string
-    // the join function (left-join only or left-join-and-select)
-    join: (...args: any[]) => any
-    // the full mongodb query object
-    mongoQuery: MongoQueryObject
-    // the top-level query builder
-    builder: SelectQueryBuilder<any>
-    // the optional selected field
-    field?: string
-    // map of fields to select (true/false or nested map)
-    selectMap: Selected
-    // list of selected fields
-    selected: Set<string>
-    // the list of aliases created and validated
-    aliases: string[]
-    // the list of validated columns
-    columns: ColumnMetadata[]
-    // the bracketed query stack
-    stack: QueryState[]
-    // the current query state
-    // NOTE: use context.join() to join tables
-    currentState: QueryState
-}
-
-export type ScopedCallback = (
-    context: QueryContext,
-    builder: WhereExpressionBuilder
-) => void
-
-export interface ScopedOptions {
-    aliasID?: number
-    columnID?: number
-    selectMap?: Selected
-    repo?: Repository<any>
-    and?: boolean
-    not?: boolean
+export interface QueryOptions {
+    /**
+     * Table alias to use in the query.
+     * Defaults to `__table__`.
+     */
+    table?: string,
+    /**
+     * The action to check against the CASL rules.
+     * eg `create`, `read`, `update`, etc.
+     * 
+     * Defaults to `manage`.
+     */
+    action?: string,
+    /**
+     * The subject to check against the CASL rules.
+     * This can be a string, class instance, or other supported type.
+     */
+    subject: ExtractSubjectType<Subject>,
+    /**
+     * An optional field to check against the CASL rules.
+     */
+    field?: string,
+    /**
+     * The select pattern to use.
+     *     '-'        - select only fields in the query
+     *     '*'        - select all non-relational fields
+     *     '**'       - select all fields including relational fields
+     *     SelectList - select specific fields
+     *                  `[ 'id', 'title', ['author', [ 'id', 'name' ]] ]`
+     *     object     - select specific fields using keys of an object
+     *                  `{ id: 1, title: 1, author: { id: 1, name: 1 } }`
+     */
+    select?: SelectPattern,
+    /**
+     * Additional filters to apply to the query. Object
+     * takes the form of a Mongo-style query object.
+     * 
+     * For example:
+     * 
+     * ```json
+     * {
+     *    "id": { "$ge": 1, "$lt": 10 },
+     *    "field": "value"
+     * }
+     * ```
+     */
+    filters?: MongoQueryObjects,
+    /**
+     * @deprecated
+     * Whether to use strict validation for column names.
+     * Only alpha-numeric column names matching the pattern
+     * `/^[a-zA-Z_][a-zA-Z0-9_]*$/` will be allowed
+     * regardless of the database schema. Default is `true`.
+     */
+    strict?: boolean,
 }

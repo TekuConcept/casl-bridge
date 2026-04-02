@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SimpleSelector select should select by pattern 1`] = `"SELECT \\"__table__\\".\\"id\\" AS \\"__table___id\\", \\"__table__\\".\\"title\\" AS \\"__table___title\\" FROM \\"book\\" \\"__table__\\""`;
