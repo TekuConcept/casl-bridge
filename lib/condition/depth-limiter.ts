@@ -26,7 +26,7 @@ export type ViolationMode = 'throw' | 'false' | 'strip'
  *
  *   OR (false, x)  → OR(x)        OR (true, x)   → true
  *   AND(true,  x)  → AND(x)       AND(false, x)  → false
- *   NOT(false)     → true          NOT(true)      → false
+ *   NOT(false)     → true         NOT(true)      → false
  *   empty scope    → null (no constraint, equivalent to being stripped)
  *
  * CASL ability trees are **not** passed through this class; only
