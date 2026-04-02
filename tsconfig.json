@@ -1,9 +1,14 @@
 {
     "extends": "./tsconfig.base.json",
     "compilerOptions": {
-        "ignoreDeprecations": "6.0",
+        "rootDir": "./lib",
         "outDir": "./dist",
-        "resolveJsonModule": true,
-        "types": ["mocha", "node"]
-    }
+        "resolveJsonModule": true
+    },
+    "exclude": [
+        "node_modules",
+        "./dist/**/*",
+        "./test/**/*",
+        "lib/**/*.spec.ts"
+    ]
 }

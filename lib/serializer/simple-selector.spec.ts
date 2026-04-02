@@ -105,7 +105,7 @@ describe('SimpleSelector', () => {
 
         it('should throw on unrecognized pattern', () => {
             const query = new ScopedCondition({ alias: '__table__' })
-            expect(() => selector.recursiveSelect(table, query, <any>'skip'))
+            expect(() => selector.recursiveSelect(table, query, 'skip' as any))
                 .to.throw('Unexpected select pattern \'skip\'')
         })
 
