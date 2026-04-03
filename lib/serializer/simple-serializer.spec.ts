@@ -652,7 +652,8 @@ describe('SimpleSerializer', () => {
         })
     })
 
-    describe('serializeLiteralCondition', () => {        let scopeInfo: any
+    describe('serializeLiteralCondition', () => {
+        let scopeInfo: any
 
         beforeEach(() => {
             const builder = table.createQueryBuilder('__test__')

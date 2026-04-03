@@ -839,7 +839,8 @@ describe('MongoTreeBuilder', () => {
         })
     })
 
-    describe('buildNullCondition', () => {        it('should build a null condition', () => {
+    describe('buildNullCondition', () => {
+        it('should build a null condition', () => {
             const builder = new MongoTreeBuilder({})
             const root = new ScopedCondition({ alias: '__root__' })
             builder['conditionStack'].push(root)
