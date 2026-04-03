@@ -2,7 +2,7 @@ import 'mocha'
 import { expect } from 'chai'
 import * as sinon from 'sinon'
 import { CaslBridge } from './casl-bridge'
-import { Book, TestDatabase } from './test-db'
+import { Article, Book, TestDatabase } from './test-db'
 import { AbilityBuilder, createMongoAbility } from '@casl/ability'
 import { Repository } from 'typeorm'
 import { FilterOptions, PathPolicy, QueryOptions } from './types'
@@ -991,14 +991,17 @@ describe('CaslBridge', () => {
     describe('compileExternalFilterTree', () => {
         describe('maxDepth', () => {
             it('should not limit filters when maxDepth is undefined', async () => {
-                // A join-depth filter must succeed unchanged when
-                // filterOptions.maxDepth is not set.
+                // A join-depth filter must succeed when filterOptions.maxDepth
+                // is not set.  The relation-ID rewriter optimises author.id
+                // conditions to use the FK column directly (no JOIN needed).
                 const bridge = new CaslBridge(db.source)
                 const query = bridge.createFilterFor('Book', {
                     author: { id: { $gt: 0 } }
                 })
 
-                expect(shrink(query.getSql())).to.contain('LEFT JOIN')
+                // The rewriter eliminates the join; FK column used directly.
+                expect(shrink(query.getSql())).to.not.contain('LEFT JOIN')
+                expect(shrink(query.getSql())).to.contain('"authorId"')
             })
 
             it('should not limit CASL ability filters even when maxDepth=0', async () => {
@@ -1237,5 +1240,132 @@ describe('CaslBridge', () => {
                 })
             })
         })
+
+        // ─────────────────────────────────────────────────────────────────
+        describe('relation-id rewrite', () => {
+            it('must remove JOIN when external filter is only on the relation PK', async () => {
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Book', {
+                    author: { id: { $gt: 0 } },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.not.contain('LEFT JOIN')
+                // FK column used directly instead of the join
+                expect(sql).to.contain('"authorId"')
+            })
+
+            it('must return correct results after rewrite', async () => {
+                // Seed gives authors with id > 0 for all books, so all books match.
+                const bridge = new CaslBridge(db.source)
+                const books = await bridge
+                    .createFilterFor('Book', { author: { id: { $gt: 0 } } })
+                    .getMany()
+
+                const total = await bookRepo.count()
+                expect(books.length).to.equal(total)
+            })
+
+            it('must retain JOIN when external filter references a non-PK relation field', async () => {
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Book', {
+                    author: { name: 'nobody' },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.contain('LEFT JOIN')
+            })
+
+            it('must retain JOIN when filter references both PK and non-PK relation fields', async () => {
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Book', {
+                    author: { id: 1, name: 'nobody' },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.contain('LEFT JOIN')
+            })
+
+            it('must use TypeORM metadata for non-id PK and non-standard FK property', async () => {
+                // Article.primaryTag has PK = 'code' (not 'id')
+                // FK column = 'tagCode' (non-standard name)
+                // The rewriter must consult metadata, not guess the name.
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Article', {
+                    primaryTag: { code: 'TECH' },
+                })
+                const sql = shrink(query.getSql())
+
+                // Join to 'tag' table must NOT appear
+                expect(sql).to.not.contain('LEFT JOIN')
+                // The FK column 'tagCode' must appear in the WHERE clause
+                expect(sql).to.contain('"tagCode"')
+            })
+
+            it('must return correct results for non-id PK rewrite', async () => {
+                const bridge = new CaslBridge(db.source)
+                const articles = await bridge
+                    .createFilterFor('Article', { primaryTag: { code: 'TECH' } })
+                    .getMany()
+
+                expect(articles.length).to.be.greaterThan(0)
+
+                // Cross-check: direct query using JOIN must return same count
+                const articleRepo = db.source.getRepository(Article)
+                const expected = await articleRepo
+                    .createQueryBuilder('a')
+                    .leftJoin('a.primaryTag', 'tag')
+                    .where('tag.code = :code', { code: 'TECH' })
+                    .getCount()
+
+                expect(articles.length).to.equal(expected)
+            })
+
+            it('must NOT rewrite CASL ability-derived filters (joins are preserved)', async () => {
+                // CASL rules that reference relations must still produce the
+                // join when the ability query is serialised; the rewriter only
+                // operates on the external-filter pipeline, never on ability rules.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { 'author.id': { $gt: 0 } })
+                const ability = builder.build()
+
+                const bridge = new CaslBridge(db.source, ability)
+                const query = bridge.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                })
+                const sql = shrink(query.getSql())
+
+                // The CASL ability path uses a join – it must remain.
+                expect(sql).to.contain('LEFT JOIN')
+            })
+
+            it('must work with createQueryTo external filters', async () => {
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createQueryTo({
+                    action: 'manage',
+                    subject: 'Book',
+                    filters: { author: { id: { $gt: 0 } } },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.not.contain('LEFT JOIN')
+                expect(sql).to.contain('"authorId"')
+            })
+
+            it('must work with applyFilterTo external filters', async () => {
+                const bridge = new CaslBridge(db.source)
+                const query = bookRepo.createQueryBuilder('__table__')
+                bridge.applyFilterTo(query, '__table__', {
+                    author: { id: { $gt: 0 } },
+                })
+
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.not.contain('LEFT JOIN')
+                expect(sql).to.contain('"authorId"')
+            })
+        })
     })
 })
+

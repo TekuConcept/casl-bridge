@@ -3,6 +3,34 @@ import * as _ from 'lodash'
 import { faker } from '@faker-js/faker'
 import { DataSource, DataSourceOptions, EntitySchema } from 'typeorm'
 
+/**
+ * Entity whose PK is `code` (not the conventional `id`).
+ * Used by tests that verify the relation-ID rewriter is metadata-driven.
+ */
+export class Tag {
+    constructor(partial?: Partial<Tag>) {
+        Object.assign(this, partial ?? {})
+    }
+
+    code: string  // non-conventional PK name
+    label: string
+}
+
+/**
+ * Entity with a many-to-one relation to Tag where the FK column on
+ * Article is given a non-standard name (`tagCode`) instead of the
+ * conventional `primaryTagId`.  Proves the rewriter uses metadata.
+ */
+export class Article {
+    constructor(partial?: Partial<Article>) {
+        Object.assign(this, partial ?? {})
+    }
+
+    id: number
+    title: string
+    primaryTag: Tag   // many-to-one; FK is 'tagCode' (non-standard)
+}
+
 export class Author {
     constructor(partial?: Partial<Author>) {
         Object.assign(this, partial ?? {})
@@ -141,6 +169,62 @@ export const CommentSchema = new EntitySchema<Comment>({
     },
 })
 
+/**
+ * Tag schema: PK is `code` (a varchar), not the conventional `id`.
+ * Used to verify metadata-driven FK resolution with a non-`id` PK.
+ */
+export const TagSchema = new EntitySchema<Tag>({
+    name: 'Tag',
+    tableName: 'tag',
+    target: Tag,
+    columns: {
+        code: {
+            type: 'varchar',
+            length: 32,
+            primary: true,
+        },
+        label: {
+            type: 'varchar',
+            length: 128,
+            nullable: false,
+        },
+    },
+})
+
+/**
+ * Article schema: the FK column to Tag is `tagCode` (non-standard name –
+ * neither `primaryTagId` nor `primaryTagCode`).  This forces the rewriter
+ * to consult TypeORM metadata rather than guessing a naming convention.
+ */
+export const ArticleSchema = new EntitySchema<Article>({
+    name: 'Article',
+    tableName: 'article',
+    target: Article,
+    columns: {
+        id: {
+            type: 'int',
+            primary: true,
+            generated: true,
+        },
+        title: {
+            type: 'varchar',
+            length: 256,
+            nullable: false,
+        },
+    },
+    relations: {
+        primaryTag: {
+            type: 'many-to-one',
+            target: 'Tag',
+            eager: true,
+            cascade: false,
+            nullable: true,
+            // Non-standard FK column name: 'tagCode' (not 'primaryTagCode' or 'primaryTagId')
+            joinColumn: { name: 'tagCode', referencedColumnName: 'code' },
+        },
+    },
+})
+
 export const SketchySchema = new EntitySchema<Sketchy>({
     name: 'Sketchy',
     tableName: 'sketchy',
@@ -183,6 +267,8 @@ export const SketchySchema = new EntitySchema<Sketchy>({
 })
 
 export const tables = [
+    TagSchema,
+    ArticleSchema,
     AuthorSchema,
     BookSchema,
     CommentSchema,
@@ -234,6 +320,7 @@ export class TestDatabase {
         await this.seedComments()
         await this.seedAuthors()
         await this.seedSketchy()
+        await this.seedArticles()
     }
 
     private async seedComments() {
@@ -284,6 +371,23 @@ export class TestDatabase {
                 'my_comment.': comments[i],
             })
             await this.source.manager.save(sketchy)
+        }
+    }
+
+    private async seedArticles() {
+        const tags = [
+            new Tag({ code: 'TECH', label: 'Technology' }),
+            new Tag({ code: 'SCI',  label: 'Science' }),
+            new Tag({ code: 'ART',  label: 'Arts' }),
+        ]
+        for (const tag of tags) await this.source.manager.save(tag)
+
+        for (let i = 0; i < 6; i++) {
+            const article = new Article({
+                title: faker.lorem.words(3),
+                primaryTag: tags[i % tags.length],
+            })
+            await this.source.manager.save(article)
         }
     }
 }

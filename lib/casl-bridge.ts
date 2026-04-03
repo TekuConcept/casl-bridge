@@ -13,7 +13,7 @@ import {
     MongoQueryObject,
     MongoQueryObjects,
 } from './condition'
-import { DepthLimiter, PathPolicyEnforcer } from './condition'
+import { DepthLimiter, PathPolicyEnforcer, RelationIdRewriter, RelationMetaProvider } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
 
@@ -186,7 +186,8 @@ export class CaslBridge {
             const filterTree = this.compileExternalFilterTree(
                 options.filters,
                 options.table,
-                options.filterOptions
+                options.filterOptions,
+                table,
             )
             serializer.serializeWith(query, filterTree)
             filterTree.unlink()
@@ -228,7 +229,8 @@ export class CaslBridge {
         const filterTree = this.compileExternalFilterTree(
             filters ?? {},
             alias,
-            filterOptions
+            filterOptions,
+            table,
         )
 
         const query = serializer.serialize(filterTree)
@@ -276,7 +278,8 @@ export class CaslBridge {
         const filterTree = this.compileExternalFilterTree(
             filters,
             aliasName,
-            filterOptions
+            filterOptions,
+            table,
         )
 
         const join = TypeOrmTableInfo.createJoinFunction(query)
@@ -299,17 +302,22 @@ export class CaslBridge {
      *
      * This is the single internal entry point for constructing
      * external filter trees.  CASL ability trees bypass this method
-     * entirely and are therefore unaffected by `maxDepth`.
+     * entirely and are therefore unaffected by `maxDepth` or the
+     * relation-ID rewrite optimisation.
      *
      * @param filters       The raw Mongo-style filter object.
      * @param alias         The table alias to use in the tree.
      * @param filterOptions Options controlling depth limiting and
      *                      violation behaviour.
+     * @param tableInfo     TypeORM table info for the root entity; when
+     *                      provided the relation-ID rewrite pass is
+     *                      applied to eliminate unnecessary JOINs.
      */
     private compileExternalFilterTree(
         filters: MongoQueryObjects,
         alias: string,
         filterOptions?: FilterOptions | null,
+        tableInfo?: TypeOrmTableInfo | null,
     ) {
         const filterQuery = new MongoQuery(filters)
         let tree = filterQuery.build(alias)
@@ -330,7 +338,52 @@ export class CaslBridge {
             tree = enforcer.apply(tree)
         }
 
+        if (tableInfo) {
+            const provider = this.makeRelationMetaProvider(tableInfo)
+            const rewriter = new RelationIdRewriter(provider)
+            tree = rewriter.apply(tree)
+        }
+
         return tree
+    }
+
+    /**
+     * Builds a {@link RelationMetaProvider} that resolves FK metadata
+     * from TypeORM entity metadata for the given table.
+     *
+     * Returns `null` for:
+     * - Relations not found on the entity.
+     * - Inverse/non-owning sides of relations (no `joinColumns`).
+     * - Many-to-many relations (join table, no direct FK on entity).
+     * - Relations with missing column/referenced-column metadata.
+     */
+    private makeRelationMetaProvider(table: TypeOrmTableInfo): RelationMetaProvider {
+        return (relationProperty: string): ReturnType<RelationMetaProvider> => {
+            const meta     = table.data.metadata
+            const relation = meta.relations.find(
+                r => r.propertyName === relationProperty
+            )
+            if (!relation) return null
+
+            const joinCols = relation.joinColumns
+            if (!joinCols || joinCols.length === 0) return null
+
+            const fkMapping: Record<string, string> = {}
+            for (const jc of joinCols) {
+                if (!jc.referencedColumn) continue
+                const pkProp = jc.referencedColumn.propertyName
+                const fkProp = jc.propertyName
+                if (pkProp && fkProp) fkMapping[pkProp] = fkProp
+            }
+            if (Object.keys(fkMapping).length === 0) return null
+
+            // Build a provider for the target entity (enables recursive rewrite).
+            const targetRepo  = table.data.manager.getRepository(relation.type)
+            const targetTable = new TypeOrmTableInfo(targetRepo)
+            const childProvider = this.makeRelationMetaProvider(targetTable)
+
+            return { fkMapping, childProvider }
+        }
     }
 
     /**
