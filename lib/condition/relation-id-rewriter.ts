@@ -114,30 +114,31 @@ export class RelationIdRewriter {
 
             const childScoped = child as ScopedCondition
 
-            if (childScoped.join) {
-                const column = rawColumn(childScoped)
-                if (column === null) continue
-
-                const meta = provider(column)
-                if (meta) {
-                    // Recursively rewrite inner join scopes first (bottom-up).
-                    if (meta.childProvider) {
-                        this.rewriteScope(childScoped, meta.childProvider)
-                    }
-
-                    // Now try to rewrite this join scope itself.
-                    if (this.canRewrite(childScoped, meta.fkMapping)) {
-                        const replacement = this.buildReplacement(
-                            childScoped,
-                            meta.fkMapping,
-                        )
-                        replacements.push({ idx: i, original: child, replacement })
-                    }
-                }
-                // No meta → leave join scope unchanged (no rewrite possible).
-            } else {
+            if (!childScoped.join) {
                 // Non-join scope: recurse with the same provider.
                 this.rewriteScope(childScoped, provider)
+                continue
+            }
+
+            const column = rawColumn(childScoped)
+            if (column === null) continue
+
+            const meta = provider(column)
+            // No meta → leave join scope unchanged (no rewrite possible).
+            if (!meta) continue
+
+            // Recursively rewrite inner join scopes first (bottom-up).
+            if (meta.childProvider) {
+                this.rewriteScope(childScoped, meta.childProvider)
+            }
+
+            // Now try to rewrite this join scope itself.
+            if (this.canRewrite(childScoped, meta.fkMapping)) {
+                const replacement = this.buildReplacement(
+                    childScoped,
+                    meta.fkMapping,
+                )
+                replacements.push({ idx: i, original: child, replacement })
             }
         }
 

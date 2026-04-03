@@ -13,7 +13,12 @@ import {
     MongoQueryObject,
     MongoQueryObjects,
 } from './condition'
-import { DepthLimiter, PathPolicyEnforcer, RelationIdRewriter, RelationMetaProvider } from './condition'
+import {
+    DepthLimiter,
+    PathPolicyEnforcer,
+    RelationIdRewriter,
+    RelationMetaProvider,
+} from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
 

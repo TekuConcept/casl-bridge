@@ -1,6 +1,10 @@
 import 'mocha'
 import { expect } from 'chai'
-import { RelationIdRewriter, RelationIdMeta, RelationMetaProvider } from './relation-id-rewriter'
+import {
+    RelationIdRewriter,
+    RelationIdMeta,
+    RelationMetaProvider,
+} from './relation-id-rewriter'
 import { ScopedCondition } from './scoped-condition'
 import { PrimitiveCondition } from './primitive-condition'
 import { LiteralCondition } from './literal-condition'
@@ -37,19 +41,20 @@ function orScope(column?: string): ScopedCondition {
     return new ScopedCondition({ scope: ScopeOp.OR, column: column ?? null })
 }
 
-/** Build a non-join NOT scope. */
-function notScope(): ScopedCondition {
-    return new ScopedCondition({ scope: ScopeOp.NOT })
-}
-
 /** Build a primitive EQ condition. */
 function prim(column: string, value: any = 1): PrimitiveCondition {
     return new PrimitiveCondition({ column, operator: PrimOp.EQUAL, operand: value })
 }
 
-/** Build a primitive GT condition. */
-function gt(column: string, value = 0): PrimitiveCondition {
+/** Build primitive conditions. */
+function $gt(column: string, value = 0): PrimitiveCondition {
     return new PrimitiveCondition({ column, operator: PrimOp.GREATER_THAN, operand: value })
+}
+function $lt(column: string, value = 0): PrimitiveCondition {
+    return new PrimitiveCondition({ column, operator: PrimOp.LESS_THAN, operand: value })
+}
+function $in(column: string, value: any[] = []): PrimitiveCondition {
+    return new PrimitiveCondition({ column, operator: PrimOp.IN, operand: value })
 }
 
 /** Simple single-level provider: maps relation property → fkMapping. */
@@ -92,8 +97,8 @@ describe('RelationIdRewriter', () => {
             it('must wrap multiple PK primitives in a non-join scope to preserve AND semantics', () => {
                 // root → joinScope(author, AND) → [prim(id>0), prim(id<10)]
                 const join = joinScope('author', '__table__')
-                join.push(gt('id', 0))
-                join.push(new PrimitiveCondition({ column: 'id', operator: PrimOp.LESS_THAN, operand: 10 }))
+                join.push($gt('id', 0))
+                join.push($lt('id', 10))
                 const r = root('__table__', join)
 
                 const rw = new RelationIdRewriter(provider({
@@ -118,11 +123,7 @@ describe('RelationIdRewriter', () => {
 
             it('must preserve operator and operand when rewriting', () => {
                 const join = joinScope('author', '__table__')
-                join.push(new PrimitiveCondition({
-                    column: 'id',
-                    operator: PrimOp.IN,
-                    operand: [1, 2, 3],
-                }))
+                join.push($in('id', [1, 2, 3]))
                 const r = root('__table__', join)
 
                 const rw = new RelationIdRewriter(provider({
