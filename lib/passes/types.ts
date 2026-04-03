@@ -22,8 +22,10 @@ export interface PassResult<TTree = ConditionTree> {
      */
     tree: TTree
     /**
-     * Issues encountered during the pass.  Currently always empty; reserved
-     * for a future "collect" mode where passes report issues without throwing.
+     * Issues encountered during the pass.  Non-empty when the pass
+     * detected a validation failure (e.g. depth exceeded, path denied).
+     * Callers inspect this array and decide whether to throw, collect, or
+     * ignore based on their violation-mode policy.
      */
     issues: PassIssue[]
 }
@@ -54,13 +56,14 @@ export interface PassIssue {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Structured error thrown by passes when they encounter a violation in
- * `"throw"` mode.
+ * Structured error class for pass violations.
  *
- * Extends `Error` so existing callers that catch plain `Error` continue to
- * work.  The additional fields (`code`, `path`) allow callers such as
- * `CastleGuard.inspects` to convert the thrown error directly into a
- * structured {@link PassIssue} without parsing the message string.
+ * Kept for backward compatibility with code that previously caught
+ * pass-thrown errors.  Passes no longer throw this class internally;
+ * instead, violations are reported as {@link PassIssue} entries in
+ * {@link PassResult.issues}.  Public API wrappers (e.g. CaslBridge and
+ * CastleGuard) re-throw a plain `Error` with the issue message when their
+ * configured violation mode calls for it.
  */
 export class PassError extends Error {
     constructor(

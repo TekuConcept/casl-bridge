@@ -90,9 +90,10 @@ describe('DepthLimiter', () => {
 
                 // maxDepth=1 means depth-2 is a violation
                 const limiter = new DepthLimiter(1, 'throw')
-                expect(() => limiter.apply(r)).to.throw(
-                    'Filter query exceeds maximum join depth of 1'
-                )
+                const result = limiter.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('MAX_DEPTH_EXCEEDED')
+                expect(result.issues[0].message).to.include('maximum join depth of 1')
                 r.unlink()
             })
 
@@ -110,25 +111,27 @@ describe('DepthLimiter', () => {
 
         // ─────────────────────────────────────────────────────────────────
         describe('onViolation throw', () => {
-            it('should throw when a join scope reaches maxDepth', () => {
+            it('should report MAX_DEPTH_EXCEEDED when a join scope reaches maxDepth', () => {
                 const authorJoin = joinScope('author', '__table__')
                 authorJoin.push(prim('name'))
                 const r = root('__table__', authorJoin)
 
                 const limiter = new DepthLimiter(0, 'throw')
-                expect(() => limiter.apply(r)).to.throw(
-                    'Filter query exceeds maximum join depth of 0'
-                )
+                const result = limiter.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('MAX_DEPTH_EXCEEDED')
+                expect(result.issues[0].message).to.include('maximum join depth of 0')
                 r.unlink()
             })
 
-            it('should not throw when there are no join scopes', () => {
+            it('should not throw and return no issues when there are no join scopes', () => {
                 const andSc = andScope()
                 andSc.push(prim('id'))
                 const r = root('__table__', andSc)
 
                 const limiter = new DepthLimiter(0, 'throw')
-                expect(() => limiter.apply(r)).to.not.throw()
+                const result = limiter.apply(r)
+                expect(result.issues).to.be.empty
                 r.unlink()
             })
 
@@ -138,7 +141,9 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', authorJoin)
 
                 const limiter = new DepthLimiter(0)
-                expect(() => limiter.apply(r)).to.throw()
+                const result = limiter.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('MAX_DEPTH_EXCEEDED')
                 r.unlink()
             })
         })
@@ -485,7 +490,7 @@ describe('DepthLimiter', () => {
                 r.unlink()
             })
 
-            it('should throw for depth-3 join when maxDepth is 2', () => {
+            it('should report MAX_DEPTH_EXCEEDED for depth-3 join when maxDepth is 2', () => {
                 const d3 = joinScope('tags', '__table___author_comments')
                 d3.push(prim('name'))
                 const commentsJoin = joinScope('comments', '__table___author')
@@ -495,9 +500,10 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', authorJoin)
 
                 const limiter = new DepthLimiter(2, 'throw')
-                expect(() => limiter.apply(r)).to.throw(
-                    'Filter query exceeds maximum join depth of 2'
-                )
+                const result = limiter.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('MAX_DEPTH_EXCEEDED')
+                expect(result.issues[0].message).to.include('maximum join depth of 2')
                 r.unlink()
             })
         })

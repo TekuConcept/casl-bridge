@@ -2,7 +2,7 @@ import { ConditionTree, ICondition, ScopeOp } from '../condition/types'
 import { ScopedCondition } from '../condition/scoped-condition'
 import { LiteralCondition } from '../condition/literal-condition'
 import { ViolationMode } from './depth-limiter'
-import { PassResult, PassError } from './types'
+import { PassResult, PassIssue } from './types'
 import { PathPolicy } from '../types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,10 +104,14 @@ function rawColumn(node: ICondition): string | null {
  *    descendant wildcard rule, e.g. `{ path: "author.**", decision: "deny" }`.
  *
  * When a path is denied:
- *  - `"throw"` (default) – throws a {@link PassError} immediately.
+ *  - `"throw"` (default) – adds a {@link PassIssue} (code `PATH_POLICY_VIOLATION`)
+ *                to the result and leaves the branch unchanged.  The caller is
+ *                responsible for inspecting issues and throwing if needed.
  *  - `"false"` – replaces the violating branch with `LiteralCondition(false)`,
  *                then simplifies the surrounding boolean context.
+ *                Also adds a {@link PassIssue} to the result.
  *  - `"strip"` – removes the violating branch entirely.
+ *                Also adds a {@link PassIssue} to the result.
  *
  * Boolean simplification rules (identical to DepthLimiter):
  *
@@ -121,6 +125,7 @@ function rawColumn(node: ICondition): string | null {
  */
 export class PathPolicyEnforcer {
     private readonly policy: NormalizedPolicy
+    private issues: PassIssue[] = []
 
     constructor(
         policy: PathPolicy,
@@ -138,17 +143,24 @@ export class PathPolicyEnforcer {
      * assuming the input reference is still valid.
      */
     apply(tree: ConditionTree): PassResult<ConditionTree> {
+        this.issues = []
         if (tree.type !== 'scoped') return { tree, issues: [] }
 
         const root = tree as ScopedCondition
         const result = this.enforceNode(root, [])
 
-        if (result === root) return { tree: root, issues: [] }
+        // In 'throw' mode the tree is intentionally left unchanged; issues
+        // have been collected and the caller decides whether to throw.
+        if (this.onViolation === 'throw') {
+            return { tree: root, issues: this.issues }
+        }
+
+        if (result === root) return { tree: root, issues: this.issues }
 
         if (result === null) {
             // Strip / collapse: everything removed → empty root = no WHERE clause
             root.clear()
-            return { tree: root, issues: [] }
+            return { tree: root, issues: this.issues }
         }
 
         // Root simplified to a LiteralCondition
@@ -159,7 +171,7 @@ export class PathPolicyEnforcer {
             root.push(literal)
         }
         // true → empty root = no WHERE clause (equivalent to no filter)
-        return { tree: root, issues: [] }
+        return { tree: root, issues: this.issues }
     }
 
     // ------------------------------------------------------------------
@@ -191,7 +203,10 @@ export class PathPolicyEnforcer {
                     ? joinPath.join('.') + '.' + col
                     : col
                 if (!isAllowedByPolicy(path, this.policy)) {
-                    return this.handleViolation(path)
+                    const v = this.handleViolation(path)
+                    // 'keep' sentinel: issue reported, return original node unchanged
+                    if (v === 'keep') return node
+                    return v
                 }
             }
             return node
@@ -231,20 +246,25 @@ export class PathPolicyEnforcer {
     }
 
     /**
-     * Produces the appropriate replacement node for a policy violation.
+     * Produces the appropriate replacement node for a policy violation
+     * and records a {@link PassIssue}.
+     *
+     * Returns:
+     *  - `'keep'` when in `'throw'` mode (issue recorded; caller returns original node unchanged).
+     *  - `LiteralCondition(false)` when in `'false'` mode.
+     *  - `null` when in `'strip'` mode.
      */
-    private handleViolation(path: string): LiteralCondition | null {
+    private handleViolation(path: string): 'keep' | LiteralCondition | null {
+        const issue: PassIssue = {
+            code:    'PATH_POLICY_VIOLATION',
+            message: `Filter path "${path}" is not permitted by PathPolicy`,
+            path,
+        }
+        this.issues.push(issue)
         switch (this.onViolation) {
-        case 'throw':
-            throw new PassError(
-                `Filter path "${path}" is not permitted by PathPolicy`,
-                'PATH_POLICY_VIOLATION',
-                path,
-            )
-        case 'false':
-            return new LiteralCondition(false)
-        case 'strip':
-            return null
+        case 'throw':  return 'keep'
+        case 'false':  return new LiteralCondition(false)
+        case 'strip':  return null
         }
     }
 

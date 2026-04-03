@@ -1,7 +1,7 @@
 import { ConditionTree, ICondition, ScopeOp } from '../condition/types'
 import { ScopedCondition } from '../condition/scoped-condition'
 import { LiteralCondition } from '../condition/literal-condition'
-import { PassResult, PassError } from './types'
+import { PassResult, PassIssue } from './types'
 
 export type ViolationMode = 'throw' | 'false' | 'strip'
 
@@ -17,11 +17,15 @@ export type ViolationMode = 'throw' | 'false' | 'strip'
  *
  * When a join scope is encountered at `depth >= maxDepth`:
  *
- * - `"throw"` (default) – throws a {@link PassError} immediately
+ * - `"throw"` (default) – adds a {@link PassIssue} (code `MAX_DEPTH_EXCEEDED`)
+ *               to the result and leaves the branch unchanged.  The caller is
+ *               responsible for inspecting issues and throwing if needed.
  * - `"false"` – replaces that branch with `LiteralCondition(false)`,
- *               then simplifies the surrounding boolean context
+ *               then simplifies the surrounding boolean context.
+ *               Also adds a {@link PassIssue} to the result.
  * - `"strip"` – removes that branch from its parent entirely, then
- *               simplifies the surrounding boolean context
+ *               simplifies the surrounding boolean context.
+ *               Also adds a {@link PassIssue} to the result.
  *
  * Boolean simplification rules applied after branch replacement:
  *
@@ -34,6 +38,8 @@ export type ViolationMode = 'throw' | 'false' | 'strip'
  * external filter trees compiled via `compileExternalFilterTree`.
  */
 export class DepthLimiter {
+    private issues: PassIssue[] = []
+
     constructor(
         private readonly maxDepth: number,
         private readonly onViolation: ViolationMode = 'throw',
@@ -51,17 +57,24 @@ export class DepthLimiter {
      * `result.tree.alias` without error.
      */
     apply(tree: ConditionTree): PassResult<ConditionTree> {
+        this.issues = []
         if (tree.type !== 'scoped') return { tree, issues: [] }
 
         const root = tree as ScopedCondition
         const result = this.limitNode(root, 0, [])
 
-        if (result === root) return { tree: root, issues: [] }
+        // In 'throw' mode the tree is intentionally left unchanged; issues
+        // have been collected and the caller decides whether to throw.
+        if (this.onViolation === 'throw') {
+            return { tree: root, issues: this.issues }
+        }
+
+        if (result === root) return { tree: root, issues: this.issues }
 
         if (result === null) {
             // Strip mode: everything stripped → empty root = no WHERE clause
             root.clear()
-            return { tree: root, issues: [] }
+            return { tree: root, issues: this.issues }
         }
 
         // Root simplified to a LiteralCondition
@@ -72,7 +85,7 @@ export class DepthLimiter {
             root.push(literal)
         }
         // true → empty root = no WHERE clause (equivalent to no filter)
-        return { tree: root, issues: [] }
+        return { tree: root, issues: this.issues }
     }
 
     // ------------------------------------------------------------------
@@ -103,16 +116,20 @@ export class DepthLimiter {
             const col  = (scoped as any)['_column'] as string | null
             /* c8 ignore next */
             const path = col ? [...joinPath, col].join('.') : joinPath.join('.') || undefined
+            const issue: PassIssue = {
+                code:    'MAX_DEPTH_EXCEEDED',
+                message: `Filter query exceeds maximum join depth of ${this.maxDepth}`,
+                path,
+            }
             switch (this.onViolation) {
             case 'throw':
-                throw new PassError(
-                    `Filter query exceeds maximum join depth of ${this.maxDepth}`,
-                    'MAX_DEPTH_EXCEEDED',
-                    path,
-                )
+                this.issues.push(issue)
+                return node   // leave tree unchanged; caller decides to throw
             case 'false':
+                this.issues.push(issue)
                 return new LiteralCondition(false)
             case 'strip':
+                this.issues.push(issue)
                 return null
             }
         }
