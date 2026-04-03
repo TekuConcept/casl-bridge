@@ -160,10 +160,10 @@ export class TreeMerger {
         // scoped
         const sa = a as ScopedCondition
         const sb = b as ScopedCondition
-        if (sa.scope !== sb.scope)                      return false
-        if (sa.join  !== sb.join)                       return false
-        if (rawColumn(sa) !== rawColumn(sb))            return false
-        if (rawAlias(sa)  !== rawAlias(sb))             return false
+        if (sa.scope !== sb.scope)                         return false
+        if (sa.join  !== sb.join)                          return false
+        if (rawColumn(sa) !== rawColumn(sb))               return false
+        if (rawAlias(sa)  !== rawAlias(sb))                return false
         if (sa.conditions.length !== sb.conditions.length) return false
 
         for (let i = 0; i < sa.conditions.length; i++) {
