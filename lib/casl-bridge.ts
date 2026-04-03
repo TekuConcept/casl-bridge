@@ -15,10 +15,8 @@ import {
 } from './condition'
 import {
     TreeMerger,
-    SchemaLessPassContext,
     SchemaAwarePassContext,
     runPasses,
-    schemaLessExternalPasses,
     schemaAwareExternalPasses,
 } from './passes'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
@@ -311,8 +309,8 @@ export class CaslBridge {
 
     /**
      * Builds a ConditionTree from an external filter object and applies the
-     * external-filter pass pipeline (depth limiting, path-policy enforcement,
-     * and — when schema context is available — relation-ID rewriting).
+     * schema-aware external-filter pass pipeline (depth limiting, path-policy
+     * enforcement, and relation-ID rewriting).
      *
      * This is the single internal entry point for constructing external filter
      * trees.  CASL ability trees bypass this method entirely and are therefore
@@ -323,28 +321,21 @@ export class CaslBridge {
      * @param alias         The table alias to use in the tree.
      * @param filterOptions Options controlling depth limiting, path policy,
      *                      and violation behaviour.
-     * @param tableInfo     TypeORM table info for the root entity; when
-     *                      provided the schema-aware pipeline (including
-     *                      relation-ID rewriting) is run.
+     * @param tableInfo     TypeORM table info for the root entity (always
+     *                      provided by CaslBridge callers).
      */
     private compileExternalFilterTree(
         filters: MongoQueryObjects,
         alias: string,
-        filterOptions?: FilterOptions | null,
-        tableInfo?: TypeOrmTableInfo | null,
+        filterOptions: FilterOptions | null | undefined,
+        tableInfo: TypeOrmTableInfo,
     ) {
         const filterQuery = new MongoQuery(filters)
         let tree = filterQuery.build(alias)
         const onViolation = filterOptions?.onViolation ?? 'throw'
 
-        let result
-        if (tableInfo) {
-            const ctx: SchemaAwarePassContext = { alias, filterOptions, tableInfo }
-            result = runPasses(tree, ctx, schemaAwareExternalPasses)
-        } else {
-            const ctx: SchemaLessPassContext = { alias, filterOptions }
-            result = runPasses(tree, ctx, schemaLessExternalPasses)
-        }
+        const ctx: SchemaAwarePassContext = { alias, filterOptions, tableInfo }
+        const result = runPasses(tree, ctx, schemaAwareExternalPasses)
 
         tree = result.tree
         if (result.issues.length > 0 && onViolation === 'throw') {

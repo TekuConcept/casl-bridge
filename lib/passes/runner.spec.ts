@@ -14,7 +14,7 @@ import {
     pathPolicyPass,
     relationIdRewriterPass,
 } from './runner'
-import { PassResult } from './types'
+import { PassResult, PassError } from './types'
 import { ConditionTree } from '../condition/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,5 +199,25 @@ describe('canonical pass lists', () => {
         expect(schemaAwareExternalPasses.length).to.be.greaterThan(
             schemaLessExternalPasses.length
         )
+    })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PassError (backward-compat export)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PassError', () => {
+    it('should be an instance of Error', () => {
+        const err = new PassError('something went wrong', 'TEST_CODE')
+        expect(err).to.be.instanceOf(Error)
+        expect(err.name).to.equal('PassError')
+        expect(err.message).to.equal('something went wrong')
+        expect(err.code).to.equal('TEST_CODE')
+        expect(err.path).to.be.undefined
+    })
+
+    it('should carry an optional path', () => {
+        const err = new PassError('bad path', 'PATH_ERR', 'author.name')
+        expect(err.path).to.equal('author.name')
     })
 })
