@@ -1,14 +1,14 @@
 import 'mocha'
 import { expect } from 'chai'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { LiteralCondition } from '../condition/literal-condition'
+import { PrimOp, ScopeOp } from '../condition/types'
 import {
     RelationIdRewriter,
     RelationIdMeta,
     RelationMetaProvider,
 } from './relation-id-rewriter'
-import { ScopedCondition } from './scoped-condition'
-import { PrimitiveCondition } from './primitive-condition'
-import { LiteralCondition } from './literal-condition'
-import { PrimOp, ScopeOp } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test helpers
