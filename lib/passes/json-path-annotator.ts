@@ -1,7 +1,8 @@
 import { ITableInfo } from '../schema'
-import { ConditionTree } from './types'
-import { ScopedCondition } from './scoped-condition'
-import { PrimitiveCondition } from './primitive-condition'
+import { ConditionTree } from '../condition/types'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { PassResult } from './types'
 
 interface JsonContext {
     /** The JSON column name on the owning entity (e.g. `'metadata'`). */
@@ -27,16 +28,25 @@ interface JsonContext {
  *
  * Works analogously to {@link RelationIdRewriter}: it mutates the tree
  * in-place and is idempotent.
+ *
+ * This is a **schema-aware pass** that requires TypeORM table metadata
+ * context and must only be used where a manager + subject/table context
+ * is available (e.g. inside the CaslBridge query-building pipeline).
  */
 export class JsonPathAnnotator {
     constructor(private readonly table: ITableInfo) {}
 
     /**
      * Annotates the condition tree starting from the root.
+     *
      * The tree is mutated in-place; the root itself is always preserved.
+     * Returns a {@link PassResult} whose `tree` is the same reference
+     * (callers must use `result.tree` rather than the original reference
+     * to remain compatible with a future immutable implementation).
      */
-    apply(tree: ConditionTree): void {
+    apply(tree: ConditionTree): PassResult<ConditionTree> {
         this.annotate(tree, this.table, null)
+        return { tree, issues: [] }
     }
 
     // ------------------------------------------------------------------

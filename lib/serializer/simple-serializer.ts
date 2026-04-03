@@ -4,13 +4,13 @@ import { ISerializer, SelectPattern } from './types'
 import {
     ConditionTree,
     ICondition,
-    JsonPathAnnotator,
     LiteralCondition,
     PrimOp,
     PrimitiveCondition,
     ScopeOp,
     ScopedCondition
 } from '../condition'
+import { JsonPathAnnotator } from '../passes'
 import { SimpleSelector } from './simple-selector'
 import { SimpleUtils } from './simple-utils'
 import { DbDialect, renderJsonExtract } from './sql-dialect-adapter'
@@ -43,7 +43,9 @@ export class SimpleSerializer implements ISerializer {
     ): IQueryBuilder {
         // Annotate JSON paths before serializing so that PrimitiveConditions
         // inside JSON column scopes carry their jsonColumn/jsonPath/jsonTableAlias.
-        new JsonPathAnnotator(this.table).apply(query)
+        // The pass mutates in-place; use result.tree to stay compatible with
+        // a future immutable implementation.
+        query = new JsonPathAnnotator(this.table).apply(query).tree
 
         const rootScope: ScopeInfo = {
             shared: { counter: builder.nextParamId() },

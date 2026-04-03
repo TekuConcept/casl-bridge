@@ -1,6 +1,7 @@
-import { ConditionTree, ICondition } from './types'
-import { ScopedCondition } from './scoped-condition'
-import { PrimitiveCondition } from './primitive-condition'
+import { ConditionTree, ICondition } from '../condition/types'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { PassResult } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -72,6 +73,10 @@ export type RelationMetaProvider = (
  * - When no FK metadata is available the join scope is left unchanged.
  * - Composite PK/FK is supported: only the referenced columns need to
  *   appear in `fkMapping`; unmapped columns prevent the rewrite safely.
+ *
+ * This is a **schema-aware pass** that requires TypeORM FK metadata context
+ * and must only be used where a manager + subject/table context is available
+ * (e.g. inside the CaslBridge query-building pipeline).
  */
 export class RelationIdRewriter {
     constructor(private readonly provider: RelationMetaProvider) {}
@@ -79,13 +84,17 @@ export class RelationIdRewriter {
     /**
      * Applies the relation-ID rewrite to `tree`.
      *
-     * Returns the (possibly mutated) root.  The root node itself is
-     * always preserved so callers can still inspect `tree.alias` etc.
+     * Returns a {@link PassResult} whose `tree` is the (possibly mutated)
+     * root.  The root node itself is always preserved so callers can still
+     * inspect `tree.alias` etc.  Callers must use `result.tree` rather than
+     * the original reference to remain compatible with a future immutable
+     * implementation.
      */
-    apply(tree: ConditionTree): ConditionTree {
-        if (tree.type !== 'scoped') return tree
-        this.rewriteScope(tree as ScopedCondition, this.provider)
-        return tree
+    apply(tree: ConditionTree): PassResult<ConditionTree> {
+        if (tree.type === 'scoped') {
+            this.rewriteScope(tree as ScopedCondition, this.provider)
+        }
+        return { tree, issues: [] }
     }
 
     // ------------------------------------------------------------------

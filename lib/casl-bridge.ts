@@ -16,12 +16,10 @@ import {
 import {
     DepthLimiter,
     PathPolicyEnforcer,
-    TreeMerger,
-} from './passes'
-import {
     RelationIdRewriter,
     RelationMetaProvider,
-} from './condition'
+    TreeMerger,
+} from './passes'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
 
@@ -355,7 +353,7 @@ export class CaslBridge {
         if (tableInfo) {
             const provider = this.makeRelationMetaProvider(tableInfo)
             const rewriter = new RelationIdRewriter(provider)
-            tree = rewriter.apply(tree)
+            tree = rewriter.apply(tree).tree
         }
 
         return tree

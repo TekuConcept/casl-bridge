@@ -1,4 +1,6 @@
 export * from './types'
 export * from './depth-limiter'
+export * from './json-path-annotator'
 export * from './path-policy-enforcer'
+export * from './relation-id-rewriter'
 export * from './tree-merger'
