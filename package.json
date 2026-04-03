@@ -8,7 +8,9 @@
     "test": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts 'lib/**/*.spec.ts'",
     "test:": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts",
     "test:cov": "c8 npm run test",
-    "build": "tsc"
+    "build": "tsc",
+    "lines:dev": "cloc lib",
+    "lines": "cloc lib --not-match-f='\\.spec\\.ts$' --ignore-case-ext --sum-one"
   },
   "repository": {
     "type": "git",
