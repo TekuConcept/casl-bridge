@@ -371,9 +371,14 @@ export class CaslBridge {
             const fkMapping: Record<string, string> = {}
             for (const jc of joinCols) {
                 if (!jc.referencedColumn) continue
+                // pkProp: PK property name on the target entity (e.g. 'id' or 'code')
                 const pkProp = jc.referencedColumn.propertyName
-                const fkProp = jc.propertyName
-                if (pkProp && fkProp) fkMapping[pkProp] = fkProp
+                // fkPropertyName: owning-side property name that TypeORM uses to
+                // construct the column reference in raw SQL (e.g. 'author', 'primaryTag').
+                // TypeORM translates this unquoted property path to the actual DB
+                // column name (e.g. 'authorId', 'tagCode') when compiling the query.
+                const fkPropertyName = jc.propertyName
+                if (pkProp && fkPropertyName) fkMapping[pkProp] = fkPropertyName
             }
             if (Object.keys(fkMapping).length === 0) return null
 

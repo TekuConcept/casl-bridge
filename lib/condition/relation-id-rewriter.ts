@@ -204,7 +204,15 @@ export class RelationIdRewriter {
 // Internal helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Reads the private `_column` field without traversing the parent chain. */
+/**
+ * Reads the protected `_column` field from any `ICondition` node without
+ * traversing the parent chain.
+ *
+ * The public `column` getter on `BaseCondition` walks up to the nearest
+ * ancestor that has a column set, which is not what we need here — we want
+ * the column property that was set directly on the node.  The same pattern is
+ * used in `PathPolicyEnforcer` for the same reason; see `path-policy-enforcer.ts`.
+ */
 function rawColumn(node: ICondition): string | null {
     return (node as any)['_column'] as string | null
 }
