@@ -337,7 +337,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'id', decision: 'deny' }] },
                     'false'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(1)
@@ -358,7 +358,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'author.name', decision: 'deny' }] },
                     'false'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(1)
@@ -386,7 +386,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'secret', decision: 'deny' }] },
                     'false'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // OR(false, id) → OR(id) → root has [orSc] with [idAnd]
                 expect(result).to.equal(r)
@@ -420,7 +420,7 @@ describe('PathPolicyEnforcer', () => {
                     },
                     'false'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // OR(false, false) → false → root([false])
                 expect(result).to.equal(r)
@@ -444,7 +444,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'id', decision: 'deny' }] },
                     'strip'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(0)
@@ -462,7 +462,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'author.name', decision: 'deny' }] },
                     'strip'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // 'name' stripped → authorJoin has no children → simplified away → empty root
                 expect(result).to.equal(r)
@@ -487,7 +487,7 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'secret', decision: 'deny' }] },
                     'strip'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 const outerOr = result.conditions[0] as ScopedCondition
@@ -519,7 +519,7 @@ describe('PathPolicyEnforcer', () => {
                     },
                     'strip'
                 )
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(0)
@@ -550,7 +550,7 @@ describe('PathPolicyEnforcer', () => {
                 const r = new ScopedCondition({ alias: '__table__' })
 
                 const e = new PathPolicyEnforcer({ default: 'deny' }, 'throw')
-                const result = e.apply(r)
+                const result = e.apply(r).tree
                 expect(result).to.equal(r)
                 expect((result as ScopedCondition).conditions).to.have.length(0)
 
@@ -560,7 +560,7 @@ describe('PathPolicyEnforcer', () => {
             it('should pass through a non-scoped root unchanged', () => {
                 const p = prim('id') as any
                 const e = new PathPolicyEnforcer({ default: 'deny' }, 'throw')
-                const result = e.apply(p)
+                const result = e.apply(p).tree
                 expect(result).to.equal(p)
             })
 
@@ -615,7 +615,7 @@ describe('PathPolicyEnforcer', () => {
                 const r = root('__table__', andSc)
 
                 const e = new PathPolicyEnforcer({}, 'false')
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // AND(true, id) → AND(id) — true literal removed, prim remains
                 const inner = result.conditions[0] as ScopedCondition
@@ -631,7 +631,7 @@ describe('PathPolicyEnforcer', () => {
                 const r = root('__table__', notSc)
 
                 const e = new PathPolicyEnforcer({}, 'false')
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // NOT(false) = true → AND(true) → empty root
                 expect(result).to.equal(r)
@@ -646,7 +646,7 @@ describe('PathPolicyEnforcer', () => {
                 const r = root('__table__', notSc)
 
                 const e = new PathPolicyEnforcer({}, 'false')
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(1)
@@ -663,7 +663,7 @@ describe('PathPolicyEnforcer', () => {
                 const r = root('__table__', orSc)
 
                 const e = new PathPolicyEnforcer({}, 'false')
-                const result = e.apply(r) as ScopedCondition
+                const result = e.apply(r).tree as ScopedCondition
 
                 // OR(true, id) = true → AND(true) → empty root
                 expect(result).to.equal(r)

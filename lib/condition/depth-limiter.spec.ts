@@ -152,7 +152,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', authorJoin)
 
                 const limiter = new DepthLimiter(0, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // root must be the same node (same alias intact)
                 expect(result).to.equal(r)
@@ -183,7 +183,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', orSc)
 
                 const limiter = new DepthLimiter(0, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // OR(false, id) → OR(id) → root has [orSc] with [idWrapper]
                 expect(result).to.equal(r)
@@ -215,7 +215,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', orSc)
 
                 const limiter = new DepthLimiter(0, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // OR(false, false) → false → AND([false]) → root([false])
                 expect(result).to.equal(r)
@@ -240,7 +240,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', andSc)
 
                 const limiter = new DepthLimiter(0, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 // conditions are unchanged
@@ -259,7 +259,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', authorJoin)
 
                 const limiter = new DepthLimiter(0, 'strip')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 // All children stripped → empty root (no WHERE clause)
@@ -285,7 +285,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', orSc)
 
                 const limiter = new DepthLimiter(0, 'strip')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
 
@@ -312,7 +312,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', orSc)
 
                 const limiter = new DepthLimiter(0, 'strip')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 expect(result).to.equal(r)
                 expect(result.conditions).to.have.length(0)
@@ -338,7 +338,7 @@ describe('DepthLimiter', () => {
                 // Instead, exercise simplify() directly via apply() on a
                 // pre-built tree that already contains a literal.
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // No depth violations but LiteralCondition(false) is
                 // treated as a non-scoped node and passed through.
@@ -358,7 +358,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', andSc)
 
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // AND(false, id) = false → root([false])
                 expect(result).to.equal(r)
@@ -377,7 +377,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', andSc)
 
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 const inner = result.conditions[0] as ScopedCondition
                 // true literal removed
@@ -394,7 +394,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', orSc)
 
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // OR(true, x) = true → AND(true) → empty root
                 expect(result).to.equal(r)
@@ -409,7 +409,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', notSc)
 
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // NOT(false) = true → AND(true) → empty root
                 expect(result).to.equal(r)
@@ -424,7 +424,7 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', notSc)
 
                 const limiter = new DepthLimiter(999, 'false')
-                const result = limiter.apply(r) as ScopedCondition
+                const result = limiter.apply(r).tree as ScopedCondition
 
                 // NOT(true) = false → AND(false) → root([false])
                 expect(result).to.equal(r)
@@ -459,7 +459,7 @@ describe('DepthLimiter', () => {
                 const r = new ScopedCondition({ alias: '__table__' })
 
                 const limiter = new DepthLimiter(0, 'throw')
-                const result = limiter.apply(r)
+                const result = limiter.apply(r).tree
                 expect(result).to.equal(r)
                 expect((result as ScopedCondition).conditions).to.have.length(0)
 
@@ -469,7 +469,7 @@ describe('DepthLimiter', () => {
             it('should pass through a non-scoped root unchanged', () => {
                 const p = prim('id') as any
                 const limiter = new DepthLimiter(0, 'throw')
-                const result = limiter.apply(p)
+                const result = limiter.apply(p).tree
                 expect(result).to.equal(p)
             })
 

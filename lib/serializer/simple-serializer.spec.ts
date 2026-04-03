@@ -749,7 +749,7 @@ describe('SimpleSerializer', () => {
             // apply DepthLimiter to trigger simplification (maxDepth=99, no violations)
             const { DepthLimiter } = require('@/condition')
             const limiter = new DepthLimiter(99, 'false')
-            const simplified = limiter.apply(tree)
+            const simplified = limiter.apply(tree).tree
 
             const builder = serializer.serialize(simplified)
             builder.data.select([])
@@ -765,7 +765,7 @@ describe('SimpleSerializer', () => {
             // apply DepthLimiter to trigger simplification
             const { DepthLimiter } = require('@/condition')
             const limiter = new DepthLimiter(99, 'false')
-            const simplified = limiter.apply(tree)
+            const simplified = limiter.apply(tree).tree
 
             const builder = serializer.serialize(simplified)
             builder.data.select([])

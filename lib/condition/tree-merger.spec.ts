@@ -56,7 +56,7 @@ describe('TreeMerger', () => {
             it('should return left unchanged when left is not scoped', () => {
                 const lit = new LiteralCondition(true)
                 const r = root('t')
-                const result = TreeMerger.merge(lit, r)
+                const result = TreeMerger.merge(lit, r).tree
                 expect(result).to.equal(lit)
                 r.unlink()
             })
@@ -64,7 +64,7 @@ describe('TreeMerger', () => {
             it('should return left unchanged when right is not scoped', () => {
                 const r = root('t')
                 const lit = new LiteralCondition(true)
-                const result = TreeMerger.merge(r, lit)
+                const result = TreeMerger.merge(r, lit).tree
                 expect(result).to.equal(r)
                 r.unlink()
             })
@@ -75,7 +75,7 @@ describe('TreeMerger', () => {
                 const left  = root('t')
                 const right = root('t', primEq('id', 1))
 
-                const merged = TreeMerger.merge(left, right)
+                const merged = TreeMerger.merge(left, right).tree
                 expect(merged.type).to.equal('scoped')
                 const sc = merged as ScopedCondition
                 expect(sc.conditions).to.have.length(1)
@@ -89,7 +89,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', primEq('id', 1))
                 const right = root('t')
 
-                const merged = TreeMerger.merge(left, right)
+                const merged = TreeMerger.merge(left, right).tree
                 const sc = merged as ScopedCondition
                 expect(sc.conditions).to.have.length(1)
                 merged.unlink()
@@ -101,7 +101,7 @@ describe('TreeMerger', () => {
                 const left  = root('t')
                 const right = root('t')
 
-                const merged = TreeMerger.merge(left, right)
+                const merged = TreeMerger.merge(left, right).tree
                 const sc = merged as ScopedCondition
                 expect(sc.conditions).to.have.length(0)
                 merged.unlink()
@@ -115,7 +115,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', primEq('a', 1), primEq('b', 2))
                 const right = root('t', primEq('c', 3))
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(merged.conditions).to.have.length(3)
                 expect((merged.conditions[0] as PrimitiveCondition).column).to.equal('a')
                 expect((merged.conditions[1] as PrimitiveCondition).column).to.equal('b')
@@ -129,7 +129,7 @@ describe('TreeMerger', () => {
                 const left  = root('my_alias', primEq('a', 1))
                 const right = root('other',    primEq('b', 2))
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(merged.alias).to.equal('my_alias')
                 merged.unlink()
                 left.unlink()
@@ -142,7 +142,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', p1)
                 const right = root('t', p2)
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(left.conditions).to.have.length(0)
                 expect(right.conditions).to.have.length(0)
                 expect(merged.conditions).to.have.length(2)
@@ -157,7 +157,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', p1)
                 const right = root('t', p2)
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(p1.parent).to.equal(merged)
                 expect(p2.parent).to.equal(merged)
                 merged.unlink()
@@ -172,7 +172,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', primEq('id', 1))
                 const right = root('t', primEq('title', 'x'))
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(merged.scope).to.equal(ScopeOp.AND)
                 expect(merged.conditions).to.have.length(2)
                 merged.unlink()
@@ -185,7 +185,7 @@ describe('TreeMerger', () => {
                 const left  = root('t', orSc)
                 const right = root('t', primGt('id', 0))
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(merged.conditions).to.have.length(2)
                 expect((merged.conditions[0] as ScopedCondition).scope).to.equal(ScopeOp.OR)
                 merged.unlink()
@@ -199,7 +199,7 @@ describe('TreeMerger', () => {
                 const left  = root('t')
                 const right = root('t', join)
 
-                const merged = TreeMerger.merge(left, right) as ScopedCondition
+                const merged = TreeMerger.merge(left, right).tree as ScopedCondition
                 expect(merged.conditions).to.have.length(1)
                 const child = merged.conditions[0] as ScopedCondition
                 expect(child.join).to.be.true
@@ -494,7 +494,7 @@ describe('TreeMerger', () => {
             const left  = root('t', new LiteralCondition(true))
             const right = root('t', primEq('id', 1))
 
-            const merged = TreeMerger.merge(left, right) as ScopedCondition
+            const merged = TreeMerger.merge(left, right).tree as ScopedCondition
             // true is neutral for AND → removed
             expect(merged.conditions).to.have.length(1)
             expect(merged.conditions[0].type).to.equal('primitive')
@@ -507,7 +507,7 @@ describe('TreeMerger', () => {
             const left  = root('t', new LiteralCondition(false))
             const right = root('t', primEq('id', 1))
 
-            const merged = TreeMerger.merge(left, right) as ScopedCondition
+            const merged = TreeMerger.merge(left, right).tree as ScopedCondition
             // false in AND → merged becomes (1=0) sentinel
             expect(merged.conditions).to.have.length(1)
             expect(merged.conditions[0].type).to.equal('literal')
@@ -521,7 +521,7 @@ describe('TreeMerger', () => {
             const left  = root('t', new LiteralCondition(true))
             const right = root('t', new LiteralCondition(true))
 
-            const merged = TreeMerger.merge(left, right) as ScopedCondition
+            const merged = TreeMerger.merge(left, right).tree as ScopedCondition
             // AND(true, true) → empty (no constraint)
             expect(merged.conditions).to.have.length(0)
             merged.unlink()
@@ -537,7 +537,7 @@ describe('TreeMerger', () => {
             // External filter: id = 1 (same predicate)
             const filterTree  = root('t', primEq('id', 1))
 
-            const merged = TreeMerger.merge(abilityTree, filterTree) as ScopedCondition
+            const merged = TreeMerger.merge(abilityTree, filterTree).tree as ScopedCondition
             expect(merged.conditions).to.have.length(1)
             merged.unlink()
             abilityTree.unlink()
@@ -548,7 +548,7 @@ describe('TreeMerger', () => {
             const filter1 = root('t', primGt('id', 0))
             const filter2 = root('t', primGt('id', 0), primGt('id', 0))
 
-            const merged = TreeMerger.merge(filter1, filter2) as ScopedCondition
+            const merged = TreeMerger.merge(filter1, filter2).tree as ScopedCondition
             // filter1: 1 condition; filter2: 2 conditions (one is duplicate)
             // After merge: 3 total → dedupe removes 2 duplicates → 1
             expect(merged.conditions).to.have.length(1)
@@ -561,7 +561,7 @@ describe('TreeMerger', () => {
             const abilityTree = root('t', primEq('id', 1))
             const filterTree  = root('t', primGt('id', 0))
 
-            const merged = TreeMerger.merge(abilityTree, filterTree) as ScopedCondition
+            const merged = TreeMerger.merge(abilityTree, filterTree).tree as ScopedCondition
             expect(merged.conditions).to.have.length(2)
             merged.unlink()
             abilityTree.unlink()
@@ -573,7 +573,7 @@ describe('TreeMerger', () => {
             const abilityTree = root('t', orSc)
             const filterTree  = root('t', primGt('id', 0), primEq('title', 'hi'))
 
-            const merged = TreeMerger.merge(abilityTree, filterTree) as ScopedCondition
+            const merged = TreeMerger.merge(abilityTree, filterTree).tree as ScopedCondition
             expect(merged.conditions).to.have.length(3)
             merged.unlink()
             abilityTree.unlink()
