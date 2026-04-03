@@ -658,12 +658,62 @@ describe('CastleGuard.scrubs', () => {
             expect(result).to.deep.equal({ id: { $gt: 0, $lt: 100 } })
         })
 
+        it('should pass through a top-level array filter (implicit $and)', () => {
+            // Lines 670-671, 686-695: processImplicitAnd is called for array input
+            const result = scrubs([{ id: 1 }, { title: 'Book' }])
+            expect(result).to.deep.equal([{ id: 1 }, { title: 'Book' }])
+        })
+
+        it('should unwrap a single-element top-level array filter', () => {
+            // Lines 693: items.length === 1 → return items[0]
+            const result = scrubs([{ id: 1 }])
+            expect(result).to.deep.equal({ id: 1 })
+        })
+
+        it('should pass through a field with an array value (implicit $in)', () => {
+            // Lines 811-813: Array value in processFieldValue
+            const result = scrubs({ tags: ['a', 'b'] })
+            expect(result).to.deep.equal({ tags: ['a', 'b'] })
+        })
+
+        it('should handle a null $not operand gracefully', () => {
+            // Line 666: null node in processNode (null $not value)
+            // typeof null === 'object' so it passes Guard; scrubs handles node === null
+            const result = scrubs({ $not: null })
+            expect(result).to.deep.equal({ $not: {} })
+        })
+
+        it('should handle a non-object $not operand gracefully', () => {
+            // Line 667: typeof node !== 'object' branch — non-object inside $not
+            const result = scrubs({ $not: 42 } as any)
+            expect(result).to.deep.equal({ $not: {} })
+        })
+
+        it('should handle an empty nested object node gracefully', () => {
+            // Line 674: keys.length === 0 in processNode
+            const result = scrubs({ $and: [{}] })
+            // {} has no constraints → stripped → $and is empty → STRIP → {}
+            expect(result).to.deep.equal({})
+        })
+
         it('should preserve nested $and/$or unchanged', () => {
             const filter = {
                 $or: [{ id: 1 }, { title: 'Book' }],
             }
             const result = scrubs(filter)
             expect(result).to.deep.equal(filter)
+        })
+
+        it('should preserve $not with a valid operand unchanged', () => {
+            // Lines 949-950: return r in processNotOperand (operand is not stripped/false)
+            const result = scrubs({ $not: { id: 1 } })
+            expect(result).to.deep.equal({ $not: { id: 1 } })
+        })
+
+        it('should strip a field with an undefined value', () => {
+            // Line 803: value === undefined → STRIP in processFieldValue
+            const result = scrubs({ id: undefined, title: 'Book' })
+            expect(result).to.deep.equal({ title: 'Book' })
         })
 
         it('should preserve dotted-path keys unchanged', () => {
@@ -693,6 +743,29 @@ describe('CastleGuard.scrubs', () => {
             }
             scrubs(original, opts)
             expect(nested).to.deep.equal({ name: 'Alice', secret: 'pass' })
+        })
+    })
+
+    // ── pathPolicy fallback defaults ─────────────────────────────────────────
+    describe('pathPolicy fallback defaults', () => {
+        it('should use "allow" as default when pathPolicy.default is omitted', () => {
+            // Lines 969: pathPolicy.default ?? 'allow' — the ?? 'allow' fallback
+            const opts: FilterOptions = {
+                pathPolicy: { rules: [{ path: 'secret', decision: 'deny' }] },
+                onViolation: 'strip',
+            }
+            const result = scrubs({ id: 1, secret: 'x' }, opts)
+            expect(result).to.deep.equal({ id: 1 })
+        })
+
+        it('should allow all paths when pathPolicy.rules is omitted', () => {
+            // Lines 970: pathPolicy.rules ?? [] — the ?? [] fallback
+            const opts: FilterOptions = {
+                pathPolicy: { default: 'allow' },
+                onViolation: 'strip',
+            }
+            const result = scrubs({ id: 1, title: 'Book' }, opts)
+            expect(result).to.deep.equal({ id: 1, title: 'Book' })
         })
     })
 
@@ -728,6 +801,22 @@ describe('CastleGuard.scrubs', () => {
             expect(() => scrubs({ id: { $bad: 1 } }))
                 .to.throw(/Unknown operator/)
         })
+
+        it('should always throw for prototype-pollution key in scrubs (regardless of onViolation)', () => {
+            // Lines 707-710: UNSAFE_KEY throw in processFieldsObj of ScrubWalker
+            const filter = Object.create(null) as any
+            filter['__proto__'] = { polluted: true }
+            expect(() => scrubs(filter)).to.throw(/Unsafe key "__proto__"/)
+            expect(() => scrubs(filter, { onViolation: 'strip' })).to.throw(/Unsafe key "__proto__"/)
+            expect(() => scrubs(filter, { onViolation: 'false' })).to.throw(/Unsafe key "__proto__"/)
+        })
+
+        it('should always throw for prototype-pollution key inside a dotted path in scrubs', () => {
+            // Lines 762-765: UNSAFE_KEY throw inside dotted segments
+            expect(() => scrubs({ 'a.__proto__.b': 1 })).to.throw(/Unsafe key "__proto__"/)
+            expect(() => scrubs({ 'a.__proto__.b': 1 }, { onViolation: 'strip' }))
+                .to.throw(/Unsafe key "__proto__"/)
+        })
     })
 
     // ── onViolation: 'strip' ────────────────────────────────────────────────
@@ -761,6 +850,16 @@ describe('CastleGuard.scrubs', () => {
                 )
                 // $and with one remaining item is simplified
                 expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should return {} when all $and items are stripped', () => {
+                // Line 920: kept.length === 0 → STRIP in processAndOperands
+                const result = strip(
+                    { $and: [{ author: { name: 'Alice' } }] },
+                    { maxDepth: 0 },
+                )
+                // single item stripped → $and is empty → STRIP → {}
+                expect(result).to.deep.equal({})
             })
 
             it('should strip branch in $or and keep other branches', () => {
@@ -841,6 +940,12 @@ describe('CastleGuard.scrubs', () => {
                 expect(result).to.deep.equal({ title: 'Book' })
             })
 
+            it('should strip a dotted path segment with unsafe characters', () => {
+                // Lines 767-768: handleViolation() for unsafe segment in dotted path
+                const result = strip({ 'author.$bad.name': 'Alice', id: 1 })
+                expect(result).to.deep.equal({ id: 1 })
+            })
+
             it('should strip array-indexing inside a dotted path', () => {
                 const result = strip({ 'author[0].name': 'Alice', id: 1 })
                 expect(result).to.deep.equal({ id: 1 })
@@ -913,6 +1018,20 @@ describe('CastleGuard.scrubs', () => {
                 const result = scrubs({ password: 'xxx' }, denyPassword)
                 expect(result).to.deep.equal({})
             })
+
+            it('should return {} when an operator-condition field is denied', () => {
+                // Line 821: checkPathPolicy returns non-null for an operator condition
+                const opts: FilterOptions = {
+                    pathPolicy: {
+                        default: 'allow',
+                        rules: [{ path: 'id', decision: 'deny' }],
+                    },
+                    onViolation: 'false',
+                }
+                const result = scrubs({ id: { $gt: 5 } }, opts)
+                // id denied → LITERAL_FALSE → {}
+                expect(result).to.deep.equal({})
+            })
         })
 
         describe('JSON path safety violations', () => {
@@ -929,6 +1048,25 @@ describe('CastleGuard.scrubs', () => {
                     { $or: [{ 'items[0]': 1 }, { title: 'Book' }] },
                 )
                 expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should treat unsafe-chars key as false, collapsing $and', () => {
+                // Line 731: unsafe chars with onViolation: 'false'
+                const result = asFalse(
+                    { $and: [{ '1badStart': 1 }, { title: 'Book' }] },
+                )
+                // AND(false, title) = false → {}
+                expect(result).to.deep.equal({})
+            })
+
+            it('should treat dotted-path depth violation as false', () => {
+                // Line 716: dotted key processSegmentedKey returns LITERAL_FALSE
+                const result = asFalse(
+                    { 'author.name': 'Alice', id: 1 },
+                    { maxDepth: 0 },
+                )
+                // author.name → depth violation → LITERAL_FALSE → fields obj = false → {}
+                expect(result).to.deep.equal({})
             })
         })
     })
@@ -981,6 +1119,60 @@ describe('CastleGuard.scrubs', () => {
             }
             const result = scrubs({ $not: { author: { name: 'Alice' } } }, opts)
             // author → false, NOT(false) = true → STRIP → {}
+            expect(result).to.deep.equal({})
+        })
+
+        it('NOT(stripped) collapses to no constraint when $not content is stripped', () => {
+            // Lines 949-950: r === STRIP path in processNotOperand
+            // When onViolation: 'strip', the $not operand is stripped entirely → $not is removed
+            const opts: FilterOptions = {
+                maxDepth: 0,
+                onViolation: 'strip',
+            }
+            const result = scrubs({ $not: { author: { name: 'Alice' } } }, opts)
+            // author exceeds maxDepth → stripped, NOT(stripped) → STRIP → {}
+            expect(result).to.deep.equal({})
+        })
+
+        it('should collapse LITERAL_FALSE from $and in a top-level array filter', () => {
+            // Lines 689: LITERAL_FALSE in processImplicitAnd (array input)
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'id', decision: 'deny' }],
+                },
+                onViolation: 'false',
+            }
+            const result = scrubs([{ id: 1 }, { title: 'Book' }], opts)
+            // id → false → AND([false, title]) → {} because false in top-level AND
+            expect(result).to.deep.equal({})
+        })
+
+        it('should strip items from top-level array filter and keep remaining', () => {
+            // Lines 690-694: STRIP in processImplicitAnd, items.length === 1 → unwrap
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'id', decision: 'deny' }],
+                },
+                onViolation: 'strip',
+            }
+            const result = scrubs([{ id: 1 }, { title: 'Book' }], opts)
+            // id stripped → [title] → single item unwrapped to { title: 'Book' }
+            expect(result).to.deep.equal({ title: 'Book' })
+        })
+
+        it('should return {} when all top-level array items are stripped', () => {
+            // Line 692: items.length === 0 → STRIP in processImplicitAnd
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'id', decision: 'deny' }],
+                },
+                onViolation: 'strip',
+            }
+            const result = scrubs([{ id: 1 }], opts)
+            // id stripped → items = [] → STRIP → {}
             expect(result).to.deep.equal({})
         })
     })
@@ -1129,6 +1321,54 @@ describe('CastleGuard.validatesForSubject', () => {
 
         it('should validate inside $not', () => {
             expect(validates({ $not: { id: 1 } })).to.not.throw()
+        })
+
+        it('should accept a primitive operator condition on a valid column ($eq, $gt, etc.)', () => {
+            // Lines 1185-1186: default branch in SchemaWalker.processOperators
+            // This branch is hit when processNode routes an all-$-key object
+            // through processOperators (e.g. a bare operator item inside $and).
+            expect(validates({
+                $and: [{ id: 1 }, { $gt: 5 }],
+            })).to.not.throw()
+        })
+
+        it('should accept a top-level array filter (implicit $and)', () => {
+            // Lines 1037-1039: processNode in SchemaWalker handles Array.isArray
+            expect(
+                () => CastleGuard.validatesForSubject(
+                    source, Book,
+                    [{ id: 1 }, { title: 'Book' }] as any,
+                )
+            ).to.not.throw()
+        })
+
+        it('should throw for an unknown column inside a top-level array filter', () => {
+            // Lines 1037-1039: exercising the array loop in SchemaWalker.processNode
+            expect(
+                () => CastleGuard.validatesForSubject(
+                    source, Book,
+                    [{ id: 1 }, { badField: 'x' }] as any,
+                )
+            ).to.throw(/Unknown field or relation "badField"/)
+        })
+    })
+
+    // ── non-joinable column as join scope ────────────────────────────────────
+    describe('non-joinable column as join scope', () => {
+        it('should throw when a non-relation column is used as a nested object scope', () => {
+            // Lines 1153-1156: processField throws when a varchar column is used as a join scope
+            // e.g. { title: { extra: 'x' } } — title is varchar, not a relation
+            expect(validates({ title: { extra: 'x' } }))
+                .to.throw(/"title" is not a relation/)
+        })
+    })
+
+    // ── unknown field in intermediate dotted-path segment ────────────────────
+    describe('unknown intermediate segment in dotted path', () => {
+        it('should throw when the first segment of a dotted path does not exist', () => {
+            // Lines 1095-1098: unknown field/relation in intermediate segment
+            expect(validates({ 'badRelation.name': 'Alice' }))
+                .to.throw(/Unknown field or relation "badRelation"/)
         })
     })
 
