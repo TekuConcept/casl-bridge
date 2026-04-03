@@ -130,8 +130,8 @@ describe('DepthLimiter', () => {
                 const r = root('__table__', andSc)
 
                 const limiter = new DepthLimiter(0, 'throw')
-                expect(() => limiter.apply(r)).to.not.throw()
-                expect(limiter.apply(r).issues).to.be.empty
+                const result = limiter.apply(r)
+                expect(result.issues).to.be.empty
                 r.unlink()
             })
 

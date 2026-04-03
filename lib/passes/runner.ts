@@ -191,6 +191,9 @@ export function buildRelationMetaProvider(table: TypeOrmTableInfo): RelationMeta
 
         const fkMapping: Record<string, string> = {}
         for (const jc of joinCols) {
+            // referencedColumn is null only for exotic join configurations
+            // (e.g. polymorphic relations) that TypeORM rarely generates;
+            // excluded from coverage intentionally.
             /* c8 ignore next */
             if (!jc.referencedColumn) continue
             const pkProp         = jc.referencedColumn.propertyName
