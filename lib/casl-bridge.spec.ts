@@ -291,7 +291,8 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
+                        "__table__"."title" AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                 `)
             )
