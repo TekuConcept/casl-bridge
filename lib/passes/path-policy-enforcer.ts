@@ -108,7 +108,7 @@ function rawColumn(node: ICondition): string | null {
  *  - `"false"` – replaces the violating branch with `LiteralCondition(false)`,
  *                then simplifies the surrounding boolean context.
  *  - `"strip"` – removes the violating branch entirely.
- * 
+ *
  * Boolean simplification rules (identical to DepthLimiter):
  *
  *   OR (false, x)  → OR(x)        OR (true, x)   → true

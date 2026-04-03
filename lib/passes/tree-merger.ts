@@ -70,38 +70,51 @@ export class TreeMerger {
         const leftRoot  = left  as ScopedCondition
         const rightRoot = right as ScopedCondition
 
+        // Create merged root with same alias as the primary (left) tree.
         const merged = new ScopedCondition({
             alias:     leftRoot.alias,
             scope:     ScopeOp.AND,
             traceName: 'merged',
         })
 
+        // Move children from leftRoot → merged.
         const leftChildren = leftRoot.conditions.slice()
         leftRoot.conditions = []
         for (const child of leftChildren) merged.push(child)
 
+        // Move children from rightRoot → merged.
         const rightChildren = rightRoot.conditions.slice()
         rightRoot.conditions = []
         for (const child of rightChildren) merged.push(child)
 
+        // Apply deduplication, then simplification.
         TreeMerger.dedupe(merged)
         const result = TreeMerger.simplify(merged)
 
         if (result === merged) return { tree: merged, issues: [] }
 
+        // Everything simplified away → empty root = no WHERE clause.
         merged.clear()
 
         if (result === null) return { tree: merged, issues: [] }
 
+        // Whole merged tree collapsed to a literal.
         const literal = result as LiteralCondition
         if (!literal.value) {
+            // false → emit (1=0)
             merged.push(literal)
         }
+        // true → empty root = no WHERE clause (equivalent to no filter).
         return { tree: merged, issues: [] }
     }
 
     /**
      * Removes structurally identical conditions at the top level of `scope`.
+     * When two conditions are structurally equal (per {@link nodesAreEqual}),
+     * the second occurrence is removed and unlinked.
+     *
+     * Only the immediate children of `scope` are compared; nested deduplication
+     * is intentionally not performed to stay conservative.
      */
     static dedupe(scope: ScopedCondition): void {
         const seen: ConditionTree[] = []
@@ -116,6 +129,7 @@ export class TreeMerger {
             }
         }
 
+        // Remove in reverse order so earlier indices stay valid.
         for (let i = toRemove.length - 1; i >= 0; i--) {
             const idx = toRemove[i]
             const removed = scope.conditions[idx]
@@ -126,6 +140,13 @@ export class TreeMerger {
 
     /**
      * Returns `true` if two ConditionTree nodes are structurally identical.
+     *
+     * Structural equality compares:
+     * - Node type
+     * - For `literal`: the boolean value
+     * - For `primitive`: raw `_column`, raw `_alias`, operator, and operand
+     * - For `scoped`: scope-op, join flag, raw `_column`, raw `_alias`, and
+     *   recursive child equality (order-sensitive)
      */
     static nodesAreEqual(a: ConditionTree, b: ConditionTree): boolean {
         if (a.type !== b.type) return false
@@ -164,6 +185,17 @@ export class TreeMerger {
     // Private helpers
     // ------------------------------------------------------------------
 
+    /**
+     * One pass of boolean simplification on a merged AND-root after its
+     * children have been flattened and deduped.
+     *
+     * Handles all scope types for completeness (AND / OR / NOT).
+     *
+     * Returns:
+     *   - `scoped` (possibly mutated) if it should remain,
+     *   - a new `LiteralCondition` if collapsed to a constant,
+     *   - `null` if the scope should be removed (empty = no constraint).
+     */
     private static simplify(scoped: ScopedCondition): ConditionTree | null {
         const conditions = scoped.conditions
 
@@ -177,8 +209,10 @@ export class TreeMerger {
 
         switch (scoped.scope) {
         case ScopeOp.AND: {
+            // AND(…, false, …) = false
             if (literals.some(l => !l.value))
                 return new LiteralCondition(false)
+            // AND(…, true, …) = AND(…) – remove true literals
             const andRest = conditions.filter(
                 c => c.type !== 'literal' || !(c as LiteralCondition).value
             )
@@ -189,10 +223,19 @@ export class TreeMerger {
             if (andRest.length === 0) return null
             return scoped
         }
+        //
+        // The OR and NOT branches below are defensive; they are included for
+        // completeness so that `simplify` is safe if ever called on a non-AND
+        // root in the future.  In the current implementation `merge` always
+        // creates the merged root with `scope = ScopeOp.AND`, so these
+        // branches are unreachable through normal usage.
+        //
         /* c8 ignore start */
         case ScopeOp.OR: {
+            // OR(…, true, …) = true
             if (literals.some(l => l.value))
                 return new LiteralCondition(true)
+            // OR(…, false, …) = OR(…) – remove false literals
             const orRest = conditions.filter(
                 c => c.type !== 'literal' || (c as LiteralCondition).value
             )
@@ -215,14 +258,20 @@ export class TreeMerger {
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Reads `_column` directly from a node without traversing the parent chain. */
 function rawColumn(node: ICondition): string | null {
     return (node as any)['_column'] as string | null
 }
 
+/** Reads `_alias` directly from a node without traversing the parent chain. */
 function rawAlias(node: ICondition): string | null {
     return (node as any)['_alias'] as string | null
 }
 
+/**
+ * Deep-equality for operand values (primitives, arrays, or simple objects
+ * such as Date).  Falls back to `JSON.stringify` for non-primitive values.
+ */
 function operandsEqual(a: any, b: any): boolean {
     if (a === b) return true
     if (a === null || b === null) return a === b
