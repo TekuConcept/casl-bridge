@@ -4,6 +4,7 @@ import { expect } from 'chai'
 import { MongoQuery, MongoTreeBuilder } from './mongo-query'
 import { ScopedCondition } from './scoped-condition'
 import { PrimitiveCondition } from './primitive-condition'
+import { LiteralCondition } from './literal-condition'
 import { PrimOp, ScopeOp } from './types'
 
 describe('MongoQuery', () => {
@@ -593,14 +594,41 @@ describe('MongoTreeBuilder', () => {
             expect(buildPrimCondition.calledOnceWith('$in', PrimOp.IN, [1], 'field')).to.be.true
         })
 
+        it('should build $in operator as LiteralCondition(false) for empty list', () => {
+            builder.buildOperator('$in', [])
+            expect(buildPrimCondition.notCalled).to.be.true
+            expect(root.conditions).to.have.lengthOf(1)
+            const condition = root.conditions[0] as LiteralCondition
+            expect(condition.type).to.equal('literal')
+            expect(condition.value).to.be.false
+        })
+
         it('should build $notIn operator', () => {
             builder.buildOperator('$notIn', [1])
             expect(buildPrimCondition.calledOnceWith('$notIn', PrimOp.NOT_IN, [1], 'field')).to.be.true
         })
 
+        it('should build $notIn operator as LiteralCondition(true) for empty list', () => {
+            builder.buildOperator('$notIn', [])
+            expect(buildPrimCondition.notCalled).to.be.true
+            expect(root.conditions).to.have.lengthOf(1)
+            const condition = root.conditions[0] as LiteralCondition
+            expect(condition.type).to.equal('literal')
+            expect(condition.value).to.be.true
+        })
+
         it('should build $nin operator', () => {
             builder.buildOperator('$nin', [1])
             expect(buildPrimCondition.calledOnceWith('$nin', PrimOp.NOT_IN, [1], 'field')).to.be.true
+        })
+
+        it('should build $nin operator as LiteralCondition(true) for empty list', () => {
+            builder.buildOperator('$nin', [])
+            expect(buildPrimCondition.notCalled).to.be.true
+            expect(root.conditions).to.have.lengthOf(1)
+            const condition = root.conditions[0] as LiteralCondition
+            expect(condition.type).to.equal('literal')
+            expect(condition.value).to.be.true
         })
 
         it('should build $like operator', () => {
@@ -830,6 +858,40 @@ describe('MongoTreeBuilder', () => {
             expect(condition.parent).to.equal(root)
 
             // cleanup
+            root.unlink()
+        })
+    })
+
+    describe('buildLiteralCondition', () => {
+        it('should push a LiteralCondition(true) onto the current scope', () => {
+            const builder = new MongoTreeBuilder({})
+            const root = new ScopedCondition({ alias: '__root__' })
+            builder['conditionStack'].push(root)
+
+            builder.buildLiteralCondition(true)
+
+            expect(root.conditions).to.have.lengthOf(1)
+            const condition = root.conditions[0] as LiteralCondition
+            expect(condition.type).to.equal('literal')
+            expect(condition.value).to.be.true
+            expect(condition.parent).to.equal(root)
+
+            root.unlink()
+        })
+
+        it('should push a LiteralCondition(false) onto the current scope', () => {
+            const builder = new MongoTreeBuilder({})
+            const root = new ScopedCondition({ alias: '__root__' })
+            builder['conditionStack'].push(root)
+
+            builder.buildLiteralCondition(false)
+
+            expect(root.conditions).to.have.lengthOf(1)
+            const condition = root.conditions[0] as LiteralCondition
+            expect(condition.type).to.equal('literal')
+            expect(condition.value).to.be.false
+            expect(condition.parent).to.equal(root)
+
             root.unlink()
         })
     })

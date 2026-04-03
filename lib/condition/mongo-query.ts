@@ -1,5 +1,6 @@
 import { ConditionTree, PrimOp, ScopeOp, IQuery } from './types'
 import { PrimitiveCondition } from './primitive-condition'
+import { LiteralCondition } from './literal-condition'
 import { ScopedCondition } from './scoped-condition'
 
 export type MongoPrimitive =
@@ -272,9 +273,17 @@ export class MongoTreeBuilder {
         case '$lt':         this.buildPrimCondition(operator, PrimOp.LESS_THAN,        operand, field); break
         case '$is':         this.buildPrimCondition(operator, PrimOp.IS,               operand, field); break
         case '$isNot':      this.buildPrimCondition(operator, PrimOp.IS_NOT,           operand, field); break
-        case '$in':         this.buildPrimCondition(operator, PrimOp.IN,               operand, field); break
+        case '$in':
+            if (Array.isArray(operand) && operand.length === 0)
+                this.buildLiteralCondition(false)
+            else this.buildPrimCondition(operator, PrimOp.IN, operand, field)
+            break
         case '$notIn':      // fall-through
-        case '$nin':        this.buildPrimCondition(operator, PrimOp.NOT_IN,           operand, field); break
+        case '$nin':
+            if (Array.isArray(operand) && operand.length === 0)
+                this.buildLiteralCondition(true)
+            else this.buildPrimCondition(operator, PrimOp.NOT_IN, operand, field)
+            break
         case '$like':       this.buildPrimCondition(operator, PrimOp.LIKE,             operand, field); break
         case '$notLike':    this.buildPrimCondition(operator, PrimOp.NOT_LIKE,         operand, field); break
         case '$iLike':      this.buildPrimCondition(operator, PrimOp.ILIKE,            operand, field); break
@@ -352,6 +361,13 @@ export class MongoTreeBuilder {
         })
 
         scope.push(condition)
+    }
+
+    /** Pushes a constant boolean `LiteralCondition` onto the current scope */
+    buildLiteralCondition(value: boolean) {
+        const scopeIndex = this.conditionStack.length - 1
+        const scope = this.conditionStack[scopeIndex]
+        scope.push(new LiteralCondition(value))
     }
 
     /** `WHERE 0 = 1`: return no results */
