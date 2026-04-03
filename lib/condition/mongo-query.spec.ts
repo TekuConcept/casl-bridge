@@ -598,6 +598,11 @@ describe('MongoTreeBuilder', () => {
             expect(buildPrimCondition.calledOnceWith('$notIn', PrimOp.NOT_IN, [1], 'field')).to.be.true
         })
 
+        it('should build $nin operator', () => {
+            builder.buildOperator('$nin', [1])
+            expect(buildPrimCondition.calledOnceWith('$nin', PrimOp.NOT_IN, [1], 'field')).to.be.true
+        })
+
         it('should build $like operator', () => {
             builder.buildOperator('$like', 'test')
             expect(buildPrimCondition.calledOnceWith('$like', PrimOp.LIKE, 'test', 'field')).to.be.true

@@ -273,7 +273,8 @@ export class MongoTreeBuilder {
         case '$is':         this.buildPrimCondition(operator, PrimOp.IS,               operand, field); break
         case '$isNot':      this.buildPrimCondition(operator, PrimOp.IS_NOT,           operand, field); break
         case '$in':         this.buildPrimCondition(operator, PrimOp.IN,               operand, field); break
-        case '$notIn':      this.buildPrimCondition(operator, PrimOp.NOT_IN,           operand, field); break
+        case '$notIn':      // fall-through
+        case '$nin':        this.buildPrimCondition(operator, PrimOp.NOT_IN,           operand, field); break
         case '$like':       this.buildPrimCondition(operator, PrimOp.LIKE,             operand, field); break
         case '$notLike':    this.buildPrimCondition(operator, PrimOp.NOT_LIKE,         operand, field); break
         case '$iLike':      this.buildPrimCondition(operator, PrimOp.ILIKE,            operand, field); break
