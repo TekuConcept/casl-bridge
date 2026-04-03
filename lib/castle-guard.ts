@@ -50,11 +50,12 @@ const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
  * Safe segment pattern.
  *
  * Each dot-separated segment of a field path must match this pattern.
- * An optional leading `$` is allowed so that JSON sub-path segments like
- * `library.$taxes` are accepted, while SQL-injection-prone characters
- * (quotes, brackets, spaces, etc.) are rejected.
+ * Only letters, digits (not as the first character), and underscores are
+ * allowed — matching the character set accepted by {@link assertSafeJsonPath}
+ * in the SQL dialect adapter.  Characters like `$`, `-`, quotes, brackets,
+ * and spaces are all rejected.
  */
-const SAFE_SEGMENT_RE = /^\$?[A-Za-z_][A-Za-z0-9_]*$/
+const SAFE_SEGMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -259,17 +260,16 @@ class GuardWalker {
     }
 
     /**
-     * Handle a dotted key such as `"author.name"` or `"metadata.library.$isbn"`.
+     * Handle a dotted key such as `"author.name"` or `"metadata.library.isbn"`.
      *
      * All segments except the last are treated as join hops (depth is incremented
      * for each one).  The final segment is passed to `processField` so that its
      * value is handled correctly (primitive, array, operator condition, or join
      * scope).
      *
-     * NOTE: `$`-prefixed segments that appear **inside** a dotted path (e.g.
-     * `library.$taxes`) are treated as plain field-name segments — **not** as
-     * operators.  A `$` key is only interpreted as an operator when it appears as
-     * a standalone key in an all-`$` operators object.
+     * Every segment is validated against {@link SAFE_SEGMENT_RE} before
+     * processing.  Malicious dot patterns (empty segments from `a..b`, `.a`,
+     * `a.`) are rejected because the empty string does not match the regex.
      */
     private processSegmentedKey(
         key: string,

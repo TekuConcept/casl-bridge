@@ -330,9 +330,35 @@ describe('CastleGuard', () => {
             expect(validates({ 'metadata.library.isbn': '123' })).to.not.throw()
         })
 
-        it('should allow $-prefixed segments in dotted paths', () => {
-            expect(validates({ 'library.$taxes': 1.5 })).to.not.throw()
-            expect(validates({ 'metadata.$meta.value': 'x' })).to.not.throw()
+        it('should reject $-prefixed segments in dotted paths', () => {
+            // $ is not accepted by assertSafeJsonPath in the SQL dialect adapter,
+            // so CastleGuard must reject them consistently.
+            expect(validates({ 'library.$taxes': 1.5 }))
+                .to.throw(/Unsafe characters/)
+            expect(validates({ 'metadata.$meta.value': 'x' }))
+                .to.throw(/Unsafe characters/)
+        })
+
+        it('should reject a bare $ segment', () => {
+            // "$" alone does not start with a letter or underscore
+            expect(validates({ 'library.$': 1 }))
+                .to.throw(/Unsafe characters/)
+        })
+
+        it('should reject malicious dot patterns', () => {
+            // Double dot: empty segment in the middle
+            expect(validates({ 'a..b': 1 })).to.throw(/Unsafe characters/)
+            // Leading dot: empty segment at the start
+            expect(validates({ '.a': 1 })).to.throw(/Unsafe characters/)
+            // Trailing dot: empty segment at the end
+            expect(validates({ 'a.': 1 })).to.throw(/Unsafe characters/)
+        })
+
+        it('inspects should report UNSAFE_PATH for malicious dots', () => {
+            const result = inspects({ 'a..b': 1 })
+            expect(result.ok).to.be.false
+            const issue = issueWithCode(result, 'UNSAFE_PATH')
+            expect(issue).to.exist
         })
 
         it('validates should throw for array indexing in a key', () => {
@@ -373,12 +399,6 @@ describe('CastleGuard', () => {
 
         it('should reject segments starting with a digit', () => {
             expect(validates({ '1badstart': 1 }))
-                .to.throw(/Unsafe characters/)
-        })
-
-        it('should reject a "$"-only segment inside a dotted path', () => {
-            // "$" alone does not match SAFE_SEGMENT_RE (requires a letter/_ after $)
-            expect(validates({ 'library.$': 1 }))
                 .to.throw(/Unsafe characters/)
         })
     })
