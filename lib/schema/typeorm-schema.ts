@@ -162,9 +162,9 @@ export class TypeOrmTableInfo implements ITableInfo {
         }
     }
 
-    createQueryBuilder(alias: string): TypeOrmSelectQueryBuilder {
+    createQueryBuilder(alias: string, direction?: 'left' | 'inner'): TypeOrmSelectQueryBuilder {
         const queryBuilder = this.data.createQueryBuilder(alias)
-        const join = TypeOrmTableInfo.createJoinFunction(queryBuilder)
+        const join = TypeOrmTableInfo.createJoinFunction(queryBuilder, direction)
         const select = queryBuilder.select.bind(queryBuilder)
 
         return new TypeOrmSelectQueryBuilder(

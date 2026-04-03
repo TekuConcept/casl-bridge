@@ -30,8 +30,8 @@ export class SimpleSerializer implements ISerializer {
         this.selector = new SimpleSelector(table)
     }
 
-    serialize(query: ConditionTree): IQueryBuilder {
-        const builder = this.table.createQueryBuilder(query.alias)
+    serialize(query: ConditionTree, direction?: 'left' | 'inner'): IQueryBuilder {
+        const builder = this.table.createQueryBuilder(query.alias, direction)
         return this.serializeWith(builder, query)
     }
 

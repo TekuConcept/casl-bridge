@@ -240,6 +240,22 @@ describe('TypeOrmSchema', () => {
                 const builder = tableInfo.createQueryBuilder('alias')
                 expect(builder).to.be.instanceOf(TypeOrmQueryBuilder)
             })
+
+            it('should use left join by default', () => {
+                const tableInfo = new TypeOrmTableInfo(repo)
+                const builder = tableInfo.createQueryBuilder('book')
+                builder.join('book.author', 'author')
+                expect(shrink(builder.data.getQuery())).to.contain('LEFT JOIN')
+            })
+
+            it('should use INNER JOIN when direction is inner', () => {
+                const tableInfo = new TypeOrmTableInfo(repo)
+                const builder = tableInfo.createQueryBuilder('book', 'inner')
+                builder.join('book.author', 'author')
+                const sql = shrink(builder.data.getQuery())
+                expect(sql).to.contain('INNER JOIN')
+                expect(sql).to.not.contain('LEFT JOIN')
+            })
         })
 
         describe('createFrom', () => {

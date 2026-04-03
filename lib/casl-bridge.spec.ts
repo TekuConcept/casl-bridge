@@ -410,6 +410,66 @@ describe('CaslBridge', () => {
                 })).to.not.throw()
             })
         })
+
+        describe('joinType', () => {
+            it('should default to LEFT JOIN when joinType is undefined', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { 'author.id': { $gt: 0 } })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({ action: 'read', subject: 'Book' })
+                expect(shrink(query.getSql())).to.contain('LEFT JOIN')
+            })
+
+            it('should use INNER JOIN for CASL rule joins when joinType is inner', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { 'author.id': { $gt: 0 } })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filterOptions: { joinType: 'inner' },
+                })
+                const sql = shrink(query.getSql())
+                expect(sql).to.contain('INNER JOIN')
+                expect(sql).to.not.contain('LEFT JOIN')
+            })
+
+            it('should use INNER JOIN for external filter joins when joinType is inner', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { author: { name: 'nobody' } },
+                    filterOptions: { joinType: 'inner' },
+                })
+                const sql = shrink(query.getSql())
+                expect(sql).to.contain('INNER JOIN')
+                expect(sql).to.not.contain('LEFT JOIN')
+            })
+
+            it('should leave SQL unchanged with joinType left (same as default)', () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { 'author.id': { $gt: 0 } })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const withoutOpts = b.createQueryTo({ action: 'read', subject: 'Book' })
+                const withLeft = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filterOptions: { joinType: 'left' },
+                })
+                expect(shrink(withoutOpts.getSql())).to.equal(shrink(withLeft.getSql()))
+            })
+        })
     })
 
     describe('createFilterFor', () => {
@@ -577,6 +637,40 @@ describe('CaslBridge', () => {
                 )
 
                 expect(shrink(filter.getSql())).to.contain('1=0')
+            })
+        })
+
+        describe('joinType', () => {
+            it('should default to LEFT JOIN when joinType is undefined', () => {
+                const query = bridge.createFilterFor('Book', {
+                    author: { name: 'nobody' },
+                })
+                expect(shrink(query.getSql())).to.contain('LEFT JOIN')
+            })
+
+            it('should use INNER JOIN when joinType is inner', () => {
+                const query = bridge.createFilterFor(
+                    'Book',
+                    { author: { name: 'nobody' } },
+                    '*',
+                    '__table__',
+                    { joinType: 'inner' },
+                )
+                const sql = shrink(query.getSql())
+                expect(sql).to.contain('INNER JOIN')
+                expect(sql).to.not.contain('LEFT JOIN')
+            })
+
+            it('should leave SQL unchanged with joinType left (same as default)', () => {
+                const withoutOpts = bridge.createFilterFor('Book', { author: { name: 'nobody' } })
+                const withLeft = bridge.createFilterFor(
+                    'Book',
+                    { author: { name: 'nobody' } },
+                    '*',
+                    '__table__',
+                    { joinType: 'left' },
+                )
+                expect(shrink(withoutOpts.getSql())).to.equal(shrink(withLeft.getSql()))
             })
         })
     })
@@ -770,6 +864,57 @@ describe('CaslBridge', () => {
                 )
 
                 expect(shrink(filtered.getSql())).to.contain('1=0')
+            })
+        })
+
+        describe('joinType', () => {
+            it('should default to LEFT JOIN when joinType is undefined', () => {
+                const query = bookRepo
+                    .createQueryBuilder('__table__')
+                const filtered = bridge.applyFilterTo(query, '__table__', {
+                    author: { name: 'nobody' },
+                })
+                expect(shrink(filtered.getSql())).to.contain('LEFT JOIN')
+            })
+
+            it('should use INNER JOIN when joinType is inner', () => {
+                const query = bookRepo.createQueryBuilder('__table__')
+                const filtered = bridge.applyFilterTo(
+                    query,
+                    '__table__',
+                    { author: { name: 'nobody' } },
+                    { joinType: 'inner' },
+                )
+                const sql = shrink(filtered.getSql())
+                expect(sql).to.contain('INNER JOIN')
+                expect(sql).to.not.contain('LEFT JOIN')
+            })
+
+            it('should leave SQL unchanged with joinType left (same as default)', () => {
+                const q1 = bookRepo.createQueryBuilder('__table__')
+                bridge.applyFilterTo(q1, '__table__', { author: { name: 'nobody' } })
+
+                const q2 = bookRepo.createQueryBuilder('__table__')
+                bridge.applyFilterTo(q2, '__table__', { author: { name: 'nobody' } }, { joinType: 'left' })
+
+                expect(shrink(q1.getSql())).to.equal(shrink(q2.getSql()))
+            })
+
+            it('should not rewrite existing joins on a user-supplied query builder', () => {
+                // User pre-joins with leftJoin; setting joinType: inner must not
+                // change the type of that existing join — only new joins by the
+                // library (here there are none because the alias is already joined).
+                const query = bookRepo
+                    .createQueryBuilder('__table__')
+                    .leftJoin('__table__.author', '__table___author')
+                const filtered = bridge.applyFilterTo(
+                    query,
+                    '__table___author',
+                    { name: 'nobody' },
+                    { joinType: 'inner' },
+                )
+                // The existing leftJoin must remain unchanged.
+                expect(shrink(filtered.getSql())).to.contain('LEFT JOIN')
             })
         })
     })
@@ -985,6 +1130,13 @@ describe('CaslBridge', () => {
             }
             expect(opts.maxDepth).to.equal(2)
             expect(opts.onViolation).to.equal('false')
+        })
+
+        it('FilterOptions should accept joinType', () => {
+            const left: FilterOptions = { joinType: 'left' }
+            const inner: FilterOptions = { joinType: 'inner' }
+            expect(left.joinType).to.equal('left')
+            expect(inner.joinType).to.equal('inner')
         })
     })
 

@@ -13,7 +13,7 @@ export interface ITableInfo {
 
     classType(): string
 
-    createQueryBuilder(alias: string): IQueryBuilder
+    createQueryBuilder(alias: string, direction?: 'left' | 'inner'): IQueryBuilder
 }
 
 export interface IColumnInfo {

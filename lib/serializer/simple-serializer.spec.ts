@@ -45,6 +45,24 @@ describe('SimpleSerializer', () => {
                 `)
             )
         })
+
+        it('should use INNER JOIN when direction is inner', () => {
+            const mondoQuery = new MongoQuery({ author: { name: 'nobody' } })
+            const tree = mondoQuery.build('__test__')
+            const query = serializer.serialize(tree, 'inner')
+
+            const sql = shrink(query.data.getSql())
+            expect(sql).to.contain('INNER JOIN')
+            expect(sql).to.not.contain('LEFT JOIN')
+        })
+
+        it('should use LEFT JOIN when direction is left (default)', () => {
+            const mondoQuery = new MongoQuery({ author: { name: 'nobody' } })
+            const tree = mondoQuery.build('__test__')
+            const query = serializer.serialize(tree, 'left')
+
+            expect(shrink(query.data.getSql())).to.contain('LEFT JOIN')
+        })
     })
 
     describe('serializeWith', () => {
