@@ -18,9 +18,16 @@ export type DbDialect =
  *
  * Rejects anything that could interfere with SQL JSON path syntax,
  * such as array indexing `[0]`, `$` sigil, quotes, semicolons, etc.
+ * 
+ * IMPORTANT: Adding `-` (dash) support requires dialect-aware quoting.
+ *            Otherwise it presents a SQL injection risk.
+ *
+ * @param path  The JSON sub-path, e.g. `library.isbn`.
+ * @returns     The same path if valid.
+ * @throws      Error if the path contains unsafe characters.
  */
 export function assertSafeJsonPath(path: string): string {
-    if (!/^[A-Za-z0-9_.]+$/.test(path)) {
+    if (!/^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$/.test(path)) {
         throw new Error(`Unsafe JSON path: "${path}"`)
     }
     return path

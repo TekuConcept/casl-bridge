@@ -37,6 +37,12 @@ describe('SqlDialectAdapter', () => {
         it('should throw on empty string', () => {
             expect(() => assertSafeJsonPath('')).to.throw('Unsafe JSON path')
         })
+
+        it('should throw on malicious dots', () => {
+            expect(() => assertSafeJsonPath('a..b')).to.throw('Unsafe JSON path')
+            expect(() => assertSafeJsonPath('.a')).to.throw('Unsafe JSON path')
+            expect(() => assertSafeJsonPath('a.')).to.throw('Unsafe JSON path')
+        })
     })
 
     describe('renderJsonExtract', () => {
