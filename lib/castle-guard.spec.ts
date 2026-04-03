@@ -631,3 +631,530 @@ describe('CastleGuard', () => {
         })
     })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// scrubs
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CastleGuard.scrubs', () => {
+    function scrubs(filter: any, opts?: FilterOptions): any {
+        return CastleGuard.scrubs(filter, opts)
+    }
+
+    // ── basic pass-through ──────────────────────────────────────────────────
+    describe('pass-through (no violations)', () => {
+        it('should return {} for null/undefined input', () => {
+            expect(scrubs(null)).to.deep.equal({})
+            expect(scrubs(undefined)).to.deep.equal({})
+        })
+
+        it('should return an equivalent filter when there are no violations', () => {
+            const result = scrubs({ id: 1, title: 'Book' })
+            expect(result).to.deep.equal({ id: 1, title: 'Book' })
+        })
+
+        it('should preserve operator conditions unchanged', () => {
+            const result = scrubs({ id: { $gt: 0, $lt: 100 } })
+            expect(result).to.deep.equal({ id: { $gt: 0, $lt: 100 } })
+        })
+
+        it('should preserve nested $and/$or unchanged', () => {
+            const filter = {
+                $or: [{ id: 1 }, { title: 'Book' }],
+            }
+            const result = scrubs(filter)
+            expect(result).to.deep.equal(filter)
+        })
+
+        it('should preserve dotted-path keys unchanged', () => {
+            const result = scrubs({ 'author.name': 'Alice' })
+            expect(result).to.deep.equal({ 'author.name': 'Alice' })
+        })
+    })
+
+    // ── input non-mutation ──────────────────────────────────────────────────
+    describe('input non-mutation', () => {
+        it('should not mutate the original filter object', () => {
+            const original = { 'author.name': 'Alice', title: 'Book' }
+            scrubs(original, { maxDepth: 0, onViolation: 'strip' })
+            expect(Object.keys(original)).to.deep.equal(['author.name', 'title'])
+            expect(original['author.name']).to.equal('Alice')
+        })
+
+        it('should not mutate nested objects', () => {
+            const nested = { name: 'Alice', secret: 'pass' }
+            const original = { author: nested }
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'author.secret', decision: 'deny' }],
+                },
+                onViolation: 'strip',
+            }
+            scrubs(original, opts)
+            expect(nested).to.deep.equal({ name: 'Alice', secret: 'pass' })
+        })
+    })
+
+    // ── onViolation: 'throw' ────────────────────────────────────────────────
+    describe("onViolation: 'throw' (default)", () => {
+        it('should throw on maxDepth violation', () => {
+            expect(() => scrubs({ author: { name: 'Alice' } }, { maxDepth: 0 }))
+                .to.throw(/Filter policy violation/)
+        })
+
+        it('should throw on path policy denial', () => {
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'password', decision: 'deny' }],
+                },
+            }
+            expect(() => scrubs({ password: 'xxx' }, opts))
+                .to.throw(/Filter policy violation/)
+        })
+
+        it('should throw on array-indexing path', () => {
+            expect(() => scrubs({ 'items[0]': 1 }))
+                .to.throw(/Filter policy violation/)
+        })
+
+        it('should throw on unsafe path characters', () => {
+            expect(() => scrubs({ '1badstart': 1 }))
+                .to.throw(/Filter policy violation/)
+        })
+
+        it('should always throw for unknown operators regardless of onViolation', () => {
+            expect(() => scrubs({ id: { $bad: 1 } }))
+                .to.throw(/Unknown operator/)
+        })
+    })
+
+    // ── onViolation: 'strip' ────────────────────────────────────────────────
+    describe("onViolation: 'strip'", () => {
+        const strip = (f: any, opts?: Omit<FilterOptions, 'onViolation'>) =>
+            scrubs(f, { onViolation: 'strip', ...opts })
+
+        describe('maxDepth violations', () => {
+            it('should strip join-scope field that exceeds maxDepth=0', () => {
+                const result = strip({ author: { name: 'Alice' } }, { maxDepth: 0 })
+                expect(result).to.deep.equal({})
+            })
+
+            it('should strip only the violating field and keep siblings', () => {
+                const result = strip(
+                    { title: 'Book', author: { name: 'Alice' } },
+                    { maxDepth: 0 },
+                )
+                expect(result).to.deep.equal({ title: 'Book' })
+            })
+
+            it('should strip dotted-path key that exceeds maxDepth', () => {
+                const result = strip({ 'author.name': 'Alice' }, { maxDepth: 0 })
+                expect(result).to.deep.equal({})
+            })
+
+            it('should strip branch in $and and keep siblings', () => {
+                const result = strip(
+                    { $and: [{ title: 'Book' }, { author: { name: 'Alice' } }] },
+                    { maxDepth: 0 },
+                )
+                // $and with one remaining item is simplified
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should strip branch in $or and keep other branches', () => {
+                const result = strip(
+                    { $or: [{ author: { name: 'Alice' } }, { title: 'Book' }] },
+                    { maxDepth: 0 },
+                )
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+        })
+
+        describe('pathPolicy violations', () => {
+            const denyPassword: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'password', decision: 'deny' }],
+                },
+                onViolation: 'strip',
+            }
+
+            it('should strip a denied field', () => {
+                const result = scrubs({ title: 'Book', password: 'xxx' }, denyPassword)
+                expect(result).to.deep.equal({ title: 'Book' })
+            })
+
+            it('should strip from $or and keep the remaining branch', () => {
+                const result = scrubs(
+                    { $or: [{ password: 'xxx' }, { title: 'Book' }] },
+                    denyPassword,
+                )
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should strip from $and and keep siblings', () => {
+                const result = scrubs(
+                    { $and: [{ title: 'Book' }, { password: 'xxx' }] },
+                    denyPassword,
+                )
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should apply default-deny policy and keep only allowed fields', () => {
+                const opts: FilterOptions = {
+                    pathPolicy: {
+                        default: 'deny',
+                        rules: [{ path: 'id', decision: 'allow' }],
+                    },
+                    onViolation: 'strip',
+                }
+                const result = scrubs({ id: 1, title: 'Book' }, opts)
+                expect(result).to.deep.equal({ id: 1 })
+            })
+
+            it('should strip descendant wildcard-denied paths', () => {
+                const opts: FilterOptions = {
+                    pathPolicy: {
+                        default: 'allow',
+                        rules: [{ path: 'author.**', decision: 'deny' }],
+                    },
+                    onViolation: 'strip',
+                }
+                const result = scrubs(
+                    { title: 'Book', author: { name: 'Alice' } },
+                    opts,
+                )
+                expect(result).to.deep.equal({ title: 'Book' })
+            })
+        })
+
+        describe('JSON path safety violations', () => {
+            it('should strip a key with array-indexing notation', () => {
+                const result = strip({ 'items[0]': 1, title: 'Book' })
+                expect(result).to.deep.equal({ title: 'Book' })
+            })
+
+            it('should strip a key with unsafe characters', () => {
+                const result = strip({ '1badStart': 1, title: 'Book' })
+                expect(result).to.deep.equal({ title: 'Book' })
+            })
+
+            it('should strip array-indexing inside a dotted path', () => {
+                const result = strip({ 'author[0].name': 'Alice', id: 1 })
+                expect(result).to.deep.equal({ id: 1 })
+            })
+        })
+    })
+
+    // ── onViolation: 'false' ────────────────────────────────────────────────
+    describe("onViolation: 'false'", () => {
+        const asFalse = (f: any, opts?: Omit<FilterOptions, 'onViolation'>) =>
+            scrubs(f, { onViolation: 'false', ...opts })
+
+        describe('maxDepth violations', () => {
+            it('should replace a join-scope violation with false, collapsing $and', () => {
+                // The violated branch becomes false; AND(false, …) = false → {}
+                const result = asFalse(
+                    { author: { name: 'Alice' } },
+                    { maxDepth: 0 },
+                )
+                // Whole filter collapsed to false → returns {}
+                expect(result).to.deep.equal({})
+            })
+
+            it('should drop a false branch from $or so sibling can succeed', () => {
+                const result = asFalse(
+                    { $or: [{ author: { name: 'Alice' } }, { title: 'Book' }] },
+                    { maxDepth: 0 },
+                )
+                // false dropped from $or; remaining: { title: 'Book' }
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should collapse $and when one branch is false', () => {
+                const result = asFalse(
+                    { $and: [{ title: 'Book' }, { author: { name: 'Alice' } }] },
+                    { maxDepth: 0 },
+                )
+                // AND(title, false) = false → {}
+                expect(result).to.deep.equal({})
+            })
+        })
+
+        describe('pathPolicy violations', () => {
+            const denyPassword: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'password', decision: 'deny' }],
+                },
+                onViolation: 'false',
+            }
+
+            it('should drop false branch from $or so sibling succeeds', () => {
+                const result = scrubs(
+                    { $or: [{ password: 'xxx' }, { title: 'Book' }] },
+                    denyPassword,
+                )
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+
+            it('should collapse $and to {} when password branch is false', () => {
+                const result = scrubs(
+                    { $and: [{ title: 'Book' }, { password: 'xxx' }] },
+                    denyPassword,
+                )
+                // AND(title, false) = false → {}
+                expect(result).to.deep.equal({})
+            })
+
+            it('should collapse fields object to {} when only field is denied', () => {
+                const result = scrubs({ password: 'xxx' }, denyPassword)
+                expect(result).to.deep.equal({})
+            })
+        })
+
+        describe('JSON path safety violations', () => {
+            it('should treat array-indexing as false, collapsing containing $and', () => {
+                const result = asFalse(
+                    { $and: [{ 'items[0]': 1 }, { title: 'Book' }] },
+                )
+                // AND(false, title) = false → {}
+                expect(result).to.deep.equal({})
+            })
+
+            it('should drop false branch from $or', () => {
+                const result = asFalse(
+                    { $or: [{ 'items[0]': 1 }, { title: 'Book' }] },
+                )
+                expect(result).to.deep.include({ title: 'Book' })
+            })
+        })
+    })
+
+    // ── simplification rules ────────────────────────────────────────────────
+    describe('boolean simplification', () => {
+        it('should simplify $and with a single remaining item', () => {
+            const result = scrubs(
+                { $and: [{ title: 'Book' }, { id: 1 }] },
+                { maxDepth: 0, onViolation: 'strip' },
+            )
+            // Both fields are at depth 0 and are not join scopes → both kept
+            // (no violation), no simplification needed here
+            expect((result as any)['$and']).to.deep.equal([
+                { title: 'Book' }, { id: 1 },
+            ])
+        })
+
+        it('should remove false literals from $or', () => {
+            const opts: FilterOptions = {
+                pathPolicy: {
+                    default: 'allow',
+                    rules: [{ path: 'secret', decision: 'deny' }],
+                },
+                onViolation: 'false',
+            }
+            const result = scrubs(
+                { $or: [{ secret: 'x' }, { id: 1 }, { secret: 'y' }] },
+                opts,
+            )
+            // false, id, false → OR(id) → { id: 1 }
+            expect(result).to.deep.include({ id: 1 })
+            expect((result as any)['$or']).to.be.undefined
+        })
+
+        it('should collapse empty $or to {} at root (empty OR = false = no constraint at root)', () => {
+            const opts: FilterOptions = {
+                pathPolicy: { default: 'deny', rules: [] },
+                onViolation: 'false',
+            }
+            const result = scrubs({ $or: [{ id: 1 }] }, opts)
+            // id is denied → false → $or(false) → LITERAL_FALSE → {}
+            expect(result).to.deep.equal({})
+        })
+
+        it('NOT(false) collapses to no constraint (STRIP), removing $not', () => {
+            const opts: FilterOptions = {
+                maxDepth: 0,
+                onViolation: 'false',
+            }
+            const result = scrubs({ $not: { author: { name: 'Alice' } } }, opts)
+            // author → false, NOT(false) = true → STRIP → {}
+            expect(result).to.deep.equal({})
+        })
+    })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// validatesForSubject
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { Author, Book, TestDatabase } from './test-db'
+import { DataSource } from 'typeorm'
+
+describe('CastleGuard.validatesForSubject', () => {
+    let db: TestDatabase
+    let source: DataSource
+
+    before(async () => {
+        db = new TestDatabase()
+        await db.connect()
+        source = db.source
+    })
+
+    after(async () => {
+        if (db) await db.disconnect()
+    })
+
+    function validates(filter: any, opts?: FilterOptions) {
+        return () => CastleGuard.validatesForSubject(source, Book, filter, opts)
+    }
+
+    // ── column existence ────────────────────────────────────────────────────
+    describe('column existence', () => {
+        it('should accept a valid column on the entity', () => {
+            expect(validates({ title: 'Book' })).to.not.throw()
+        })
+
+        it('should throw on an unknown column', () => {
+            expect(validates({ unknownColumn: 1 }))
+                .to.throw(/Unknown field or relation "unknownColumn"/)
+        })
+
+        it('should accept multiple valid columns', () => {
+            expect(validates({ id: 1, title: 'Book' })).to.not.throw()
+        })
+
+        it('should throw on unknown column in operator condition', () => {
+            expect(validates({ badField: { $gt: 0 } }))
+                .to.throw(/Unknown field or relation "badField"/)
+        })
+    })
+
+    // ── relation traversal ──────────────────────────────────────────────────
+    describe('relation traversal', () => {
+        it('should accept a valid relation and its columns (nested object)', () => {
+            expect(validates({ author: { name: 'Alice' } })).to.not.throw()
+        })
+
+        it('should throw on an unknown relation', () => {
+            expect(validates({ unknownRelation: { name: 'Alice' } }))
+                .to.throw(/Unknown field or relation "unknownRelation"/)
+        })
+
+        it('should throw on unknown column inside a relation', () => {
+            expect(validates({ author: { badField: 'x' } }))
+                .to.throw(/Unknown field or relation "author.badField"/)
+        })
+
+        it('should accept valid dotted-path notation for relation traversal', () => {
+            expect(validates({ 'author.name': 'Alice' })).to.not.throw()
+        })
+
+        it('should throw on unknown column in dotted path', () => {
+            expect(validates({ 'author.badField': 1 }))
+                .to.throw(/Unknown field "author.badField"/)
+        })
+
+        it('should throw when trying to traverse through a non-relation column', () => {
+            // title is a varchar column, not a relation
+            expect(validates({ 'title.extra': 'x' }))
+                .to.throw(/Cannot use sub-path notation after non-relation/)
+        })
+    })
+
+    // ── JSON column sub-paths ───────────────────────────────────────────────
+    describe('JSON column sub-paths', () => {
+        it('should allow direct access to a JSON column (no sub-path)', () => {
+            // metadata is a simple-json column on Book
+            expect(validates({ metadata: { $like: '%isbn%' } })).to.not.throw()
+        })
+
+        it('should allow a JSON sub-path under a JSON column', () => {
+            // metadata is simple-json; library.isbn is a JSON sub-path
+            expect(validates({ 'metadata.library.isbn': '123' })).to.not.throw()
+        })
+
+        it('should throw when using a sub-path after a non-JSON, non-relation column', () => {
+            expect(validates({ 'title.library.isbn': '123' }))
+                .to.throw(/Cannot use sub-path notation after non-relation/)
+        })
+
+        it('should allow a JSON column reached through a relation (dotted path)', () => {
+            // On Author entity: books is a relation to Book; metadata is JSON on Book.
+            expect(
+                () => CastleGuard.validatesForSubject(
+                    source, Author,
+                    { 'books.metadata.library.isbn': '123' },
+                )
+            ).to.not.throw()
+        })
+
+        it('should allow a JSON column reached through a relation (nested object)', () => {
+            expect(
+                () => CastleGuard.validatesForSubject(
+                    source, Author,
+                    { books: { 'metadata.library.isbn': '123' } },
+                )
+            ).to.not.throw()
+        })
+    })
+
+    // ── $and / $or / $not at root ───────────────────────────────────────────
+    describe('boolean operators', () => {
+        it('should validate columns inside $and', () => {
+            expect(validates({
+                $and: [{ id: 1 }, { title: 'Book' }],
+            })).to.not.throw()
+        })
+
+        it('should throw for unknown column inside $and', () => {
+            expect(validates({
+                $and: [{ id: 1 }, { badField: 'x' }],
+            })).to.throw(/Unknown field or relation "badField"/)
+        })
+
+        it('should validate columns inside $or', () => {
+            expect(validates({
+                $or: [{ id: 1 }, { title: 'Book' }],
+            })).to.not.throw()
+        })
+
+        it('should throw for unknown column inside $or', () => {
+            expect(validates({
+                $or: [{ id: 1 }, { badField: 'x' }],
+            })).to.throw(/Unknown field or relation "badField"/)
+        })
+
+        it('should validate inside $not', () => {
+            expect(validates({ $not: { id: 1 } })).to.not.throw()
+        })
+    })
+
+    // ── filterOptions pass-through ──────────────────────────────────────────
+    describe('filterOptions integration', () => {
+        it('should still throw for unknown operator (from validates)', () => {
+            expect(validates({ id: { $badOp: 1 } }))
+                .to.throw(/Unknown operator/)
+        })
+
+        it('should enforce maxDepth from filterOptions', () => {
+            expect(validates({ author: { name: 'Alice' } }, { maxDepth: 0 }))
+                .to.throw(/exceeds maximum join depth/)
+        })
+
+        it('should enforce pathPolicy from filterOptions', () => {
+            expect(validates(
+                { title: 'Book' },
+                {
+                    pathPolicy: {
+                        default: 'deny',
+                        rules: [],
+                    },
+                },
+            )).to.throw(/Filter path "title" is not permitted/)
+        })
+    })
+})
+
