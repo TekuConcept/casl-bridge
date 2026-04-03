@@ -3,7 +3,12 @@ import 'mocha'
 import { expect } from 'chai'
 import { TestDatabase } from '@/test-db'
 import { TypeOrmTableInfo } from '@/schema'
-import { MongoQuery, PrimOp, PrimitiveCondition, ScopedCondition } from '@/condition'
+import {
+    MongoQuery,
+    PrimOp,
+    PrimitiveCondition,
+    ScopedCondition,
+} from '@/condition'
 import { JsonPathAnnotator } from './json-path-annotator'
 
 describe('JsonPathAnnotator', () => {
@@ -74,7 +79,7 @@ describe('JsonPathAnnotator', () => {
             const tree = new MongoQuery({ 'metadata.library.isbn': 'value' }).build('__test__')
             new JsonPathAnnotator(bookTable).apply(tree)
 
-            const root         = tree as ScopedCondition
+            const root          = tree as ScopedCondition
             const metadataScope = root.conditions[0] as ScopedCondition
             const libraryScope  = metadataScope.conditions[0] as ScopedCondition
 
@@ -86,7 +91,7 @@ describe('JsonPathAnnotator', () => {
             const tree = new MongoQuery({ author: { name: 'Alice' } }).build('__test__')
             new JsonPathAnnotator(bookTable).apply(tree)
 
-            const root       = tree as ScopedCondition
+            const root        = tree as ScopedCondition
             const authorScope = root.conditions[0] as ScopedCondition
 
             expect(authorScope.isJsonTraversal).to.be.undefined

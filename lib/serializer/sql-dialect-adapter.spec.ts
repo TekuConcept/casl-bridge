@@ -4,7 +4,6 @@ import { expect } from 'chai'
 import { assertSafeJsonPath, renderJsonExtract } from './sql-dialect-adapter'
 
 describe('SqlDialectAdapter', () => {
-
     describe('assertSafeJsonPath', () => {
         it('should return the path unchanged when valid', () => {
             expect(assertSafeJsonPath('isbn')).to.equal('isbn')

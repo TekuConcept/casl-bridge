@@ -13,7 +13,7 @@ export interface ITableInfo {
 
     classType(): string
 
-    /** Returns the database dialect string from `dataSource.options.type`. */
+    /** Returns the database dialect string, eg. "mysql" or "sqlite" */
     getDialectType(): string
 
     createQueryBuilder(alias: string, direction?: 'left' | 'inner'): IQueryBuilder
@@ -28,7 +28,7 @@ export interface IColumnInfo {
 
     isJoinable(): boolean
     isIdentifier(name: string): boolean
-    /** Returns `true` when the column's TypeORM type is `'json'` or `'simple-json'`. */
+    /** Returns `true` when the column's type is `'json'` or `'simple-json'`. */
     isJsonColumn(): boolean
 }
 
