@@ -59,15 +59,19 @@ export class DepthLimiter {
         if (result === root) return { tree: root, issues: [] }
 
         if (result === null) {
+            // Strip mode: everything stripped → empty root = no WHERE clause
             root.clear()
             return { tree: root, issues: [] }
         }
 
+        // Root simplified to a LiteralCondition
         const literal = result as LiteralCondition
         root.clear()
         if (!literal.value) {
+            // false → make root emit (1=0)
             root.push(literal)
         }
+        // true → empty root = no WHERE clause (equivalent to no filter)
         return { tree: root, issues: [] }
     }
 
@@ -75,15 +79,26 @@ export class DepthLimiter {
     // Private helpers
     // ------------------------------------------------------------------
 
+    /**
+     * Recursively limits `node` at the given `depth`.
+     *
+     * Returns:
+     *   - the same node (possibly mutated in-place) if no simplification
+     *     collapsed it to a literal,
+     *   - a new `LiteralCondition` if the node was collapsed,
+     *   - `null` if the node should be stripped.
+     */
     private limitNode(
         node: ConditionTree,
         depth: number,
         joinPath: string[],
     ): ConditionTree | null {
+        // Non-scoped leaves are always passed through unchanged.
         if (node.type !== 'scoped') return node
 
         const scoped = node as ScopedCondition
 
+        // ── Depth violation check ──────────────────────────────────────
         if (scoped.join && depth >= this.maxDepth) {
             const col  = (scoped as any)['_column'] as string | null
             /* c8 ignore next */
@@ -106,18 +121,24 @@ export class DepthLimiter {
         const col       = (scoped as any)['_column'] as string | null
         const nextJoinPath = scoped.join && col ? [...joinPath, col] : joinPath
 
+        // ── Recurse into children ──────────────────────────────────────
         const newConditions: ICondition[] = []
         for (const child of scoped.conditions) {
             const result = this.limitNode(child as ConditionTree, nextDepth, nextJoinPath)
             if (result !== null) {
                 newConditions.push(result)
             }
+            // null ⇒ stripped: do not add to newConditions
+
+            // If the child was stripped or replaced by a new node, unlink the
+            // original to break circular parent↔child references and allow GC.
             if (result !== (child as ConditionTree)) {
                 child.unlink()
             }
         }
         scoped.conditions = newConditions
 
+        // Fix parent back-references for any new nodes that were inserted.
         for (const c of newConditions) {
             c.parent = scoped
         }
@@ -125,10 +146,22 @@ export class DepthLimiter {
         return this.simplify(scoped)
     }
 
+    /**
+     * Applies one pass of boolean simplification to `scoped` after its
+     * children have been updated.
+     *
+     * Returns:
+     *   - `scoped` (possibly mutated) if it should remain in the tree,
+     *   - a new `LiteralCondition` if the scope collapsed to a constant,
+     *   - `null` if the scope should be stripped (empty = no constraint).
+     */
     private simplify(scoped: ScopedCondition): ConditionTree | null {
         const conditions = scoped.conditions
 
         if (conditions.length === 0) {
+            // Empty scope: no constraint ─ treat as stripped regardless
+            // of violation mode (the caller decides what "null" means at
+            // the root level).
             return null
         }
 
@@ -140,8 +173,10 @@ export class DepthLimiter {
 
         switch (scoped.scope) {
         case ScopeOp.AND: {
+            // AND(…, false, …) = false
             if (literals.some(l => !l.value))
                 return new LiteralCondition(false)
+            // AND(…, true, …) = AND(…) – remove true literals
             const andRest = conditions.filter(
                 c => c.type !== 'literal' || !(c as LiteralCondition).value
             )
@@ -149,12 +184,15 @@ export class DepthLimiter {
                 .filter(c => c.type === 'literal' && (c as LiteralCondition).value)
                 .forEach(c => c.unlink())
             scoped.conditions = andRest
+            // All children were true literals → AND(true,…,true) = true = no constraint
             if (andRest.length === 0) return null
             return scoped
         }
         case ScopeOp.OR: {
+            // OR(…, true, …) = true
             if (literals.some(l => l.value))
                 return new LiteralCondition(true)
+            // OR(…, false, …) = OR(…) – remove false literals
             const orRest = conditions.filter(
                 c => c.type !== 'literal' || (c as LiteralCondition).value
             )
@@ -162,10 +200,14 @@ export class DepthLimiter {
                 .filter(c => c.type === 'literal' && !(c as LiteralCondition).value)
                 .forEach(c => c.unlink())
             scoped.conditions = orRest
+            // All children were false literals → OR(false,…,false) = false
             if (orRest.length === 0) return new LiteralCondition(false)
             return scoped
         }
         case ScopeOp.NOT: {
+            // NOT should wrap exactly one child in valid trees.
+            // Because we only enter simplify() when literals.length > 0,
+            // literals[0] is always defined here.
             return new LiteralCondition(!literals[0].value)
         }
         }
