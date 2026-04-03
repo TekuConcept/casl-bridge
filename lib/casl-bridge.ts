@@ -185,7 +185,7 @@ export class CaslBridge {
 
         const mongoQuery = new MongoQuery(caslQuery)
         const tree = mongoQuery.build(options.table)
-        const query = serializer.serialize(tree)
+        const query = serializer.serialize(tree, options.filterOptions?.joinType ?? 'left')
 
         if (options.filters) {
             const filterTree = this.compileExternalFilterTree(
@@ -238,7 +238,7 @@ export class CaslBridge {
             table,
         )
 
-        const query = serializer.serialize(filterTree)
+        const query = serializer.serialize(filterTree, filterOptions?.joinType ?? 'left')
         serializer.select(query, filterTree, selectPatten)
         filterTree.unlink()
 
@@ -287,7 +287,7 @@ export class CaslBridge {
             table,
         )
 
-        const join = TypeOrmTableInfo.createJoinFunction(query)
+        const join = TypeOrmTableInfo.createJoinFunction(query, filterOptions?.joinType ?? 'left')
         const queryBuilder = new TypeOrmQueryBuilder(
             query,
             join,
