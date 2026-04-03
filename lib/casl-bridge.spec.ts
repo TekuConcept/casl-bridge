@@ -38,7 +38,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                 `)
             )
@@ -58,7 +58,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                     WHERE ((("__table__"."id" = 3) OR
                             ("__table__"."id" = 1)))
@@ -289,7 +289,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                 `)
             )
@@ -314,7 +314,7 @@ describe('CaslBridge', () => {
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
-                            "__table__"."title" AS "__table___title"
+                            "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                         FROM "book" "__table__"
                         WHERE ("__table__"."id" = 1)
                     `)
@@ -363,7 +363,7 @@ describe('CaslBridge', () => {
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
-                            "__table__"."title" AS "__table___title"
+                            "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                         FROM "book" "__table__"
                     `)
                 )
@@ -616,7 +616,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                 `)
             )
@@ -632,7 +632,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                     WHERE ("__table__"."id" > 1 AND
                            "__table__"."id" < 5)
@@ -685,7 +685,7 @@ describe('CaslBridge', () => {
                 shrink(`
                     SELECT
                         "__table__"."id"    AS "__table___id",
-                        "__table__"."title" AS "__table___title"
+                        "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                     FROM "book" "__table__"
                     WHERE ("__table__"."id" > 1 AND
                            "__table__"."id" < 5)
@@ -704,7 +704,7 @@ describe('CaslBridge', () => {
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
-                            "__table__"."title" AS "__table___title"
+                            "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                         FROM "book" "__table__"
                         WHERE ("__table__"."id" > 1 AND
                                "__table__"."id" < 5)
@@ -743,7 +743,7 @@ describe('CaslBridge', () => {
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
-                            "__table__"."title" AS "__table___title"
+                            "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                         FROM "book" "__table__"
                     `)
                 )
@@ -830,6 +830,7 @@ describe('CaslBridge', () => {
                     SELECT
                         "__table__"."id"       AS "__table___id",
                         "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                         "__table__"."authorId" AS "__table___authorId"
                     FROM "book" "__table__"
                     WHERE ("__table__"."id" > 1 AND
@@ -852,6 +853,7 @@ describe('CaslBridge', () => {
                     SELECT
                         "__table__"."id"       AS "__table___id",
                         "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                         "__table__"."authorId" AS "__table___authorId"
                     FROM "book" "__table__"
                     LEFT JOIN "author" "__table___author"
@@ -872,6 +874,7 @@ describe('CaslBridge', () => {
                     SELECT
                         "__table__"."id"       AS "__table___id",
                         "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                         "__table__"."authorId" AS "__table___authorId"
                     FROM "book" "__table__"
                 `)
@@ -907,6 +910,7 @@ describe('CaslBridge', () => {
                     SELECT
                         "__table__"."id"       AS "__table___id",
                         "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                         "__table__"."authorId" AS "__table___authorId"
                     FROM "book" "__table__"
                     WHERE ("__table__"."id" > 1 AND
@@ -929,6 +933,7 @@ describe('CaslBridge', () => {
                         SELECT
                             "__table__"."id"       AS "__table___id",
                             "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                             "__table__"."authorId" AS "__table___authorId"
                         FROM "book" "__table__"
                         WHERE ("__table__"."id" > 1 AND
@@ -970,6 +975,7 @@ describe('CaslBridge', () => {
                         SELECT
                             "__table__"."id"       AS "__table___id",
                             "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                             "__table__"."authorId" AS "__table___authorId"
                         FROM "book" "__table__"
                     `)
@@ -1440,7 +1446,7 @@ describe('CaslBridge', () => {
                         shrink(`
                             SELECT
                                 "__table__"."id"    AS "__table___id",
-                                "__table__"."title" AS "__table___title"
+                                "__table__"."title" AS "__table___title", "__table__"."metadata" AS "__table___metadata"
                             FROM "book" "__table__"
                         `)
                     )
@@ -1499,6 +1505,7 @@ describe('CaslBridge', () => {
                             SELECT
                                 "__table__"."id"       AS "__table___id",
                                 "__table__"."title"    AS "__table___title",
+                        "__table__"."metadata" AS "__table___metadata",
                                 "__table__"."authorId" AS "__table___authorId"
                             FROM "book" "__table__"
                         `)

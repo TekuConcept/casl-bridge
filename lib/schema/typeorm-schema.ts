@@ -103,6 +103,11 @@ export class TypeOrmTableInfo implements ITableInfo {
 
     classType(): string { return this.data.metadata.targetName }
 
+    /** Returns the database dialect (e.g. `'better-sqlite3'`, `'mysql'`). */
+    getDialectType(): string {
+        return this.data.manager.connection.options.type as string
+    }
+
     quotedName(name: string): string {
         let result = name
         let left: string = '"'
@@ -226,6 +231,13 @@ export class TypeOrmColumnInfo implements IColumnInfo {
     }
 
     isJoinable(): boolean { return !!this.relation }
+
+    isJsonColumn(): boolean {
+        if (this.relation) return false
+        const col = this.data as ColumnMetadata
+        const type = col.type as string
+        return type === 'json' || type === 'simple-json'
+    }
 
     isIdentifier(): boolean {
         const SimpleColumnGrammar = /^[a-zA-Z_][a-zA-Z0-9_]*$/

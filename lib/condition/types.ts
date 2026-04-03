@@ -56,6 +56,11 @@ export interface IScopedCondition extends ICondition {
     join: boolean
     scope: ScopeOp
     conditions: ICondition[]
+    /**
+     * When `true`, this scope is a JSON path traversal (set by
+     * `JsonPathAnnotator`).  The serializer skips the SQL JOIN.
+     */
+    isJsonTraversal?: boolean
 }
 
 /**

@@ -50,6 +50,7 @@ export class Book {
     id: number
     title: string
     author: Author // many-to-one relation
+    metadata: object // JSON column
 }
 
 export class Comment {
@@ -146,6 +147,12 @@ export const BookSchema = new EntitySchema<Book>({
             type: 'varchar',
             length: 256,
             nullable: false,
+        },
+        metadata: {
+            // Use simple-json so the column works with SQLite (better-sqlite3)
+            // as well as any database that supports native JSON.
+            type: 'simple-json',
+            nullable: true,
         },
     },
     relations: {
@@ -363,6 +370,7 @@ export class TestDatabase {
             const book = new Book({
                 title: faker.music.songName(),
                 author,
+                metadata: { library: { isbn: `ISBN-${i + 1}` } },
             })
             await this.source.manager.save(book)
         }
