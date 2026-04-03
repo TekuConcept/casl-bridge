@@ -155,7 +155,7 @@ class GuardWalker {
         private readonly mode: WalkerMode,
         options?: FilterOptions,
     ) {
-        this.maxDepth  = options?.maxDepth
+        this.maxDepth   = options?.maxDepth
         this.pathPolicy = options?.pathPolicy
     }
 
@@ -314,7 +314,7 @@ class GuardWalker {
         // synthetic nested object, which would misclassify $-prefixed final
         // segments (e.g. `$taxes`) as operator keys.
         let currentDepth = depth
-        let joinPrefix    = [...pathPrefix]
+        let joinPrefix   = [...pathPrefix]
 
         for (let i = 0; i < segments.length - 1; i++) {
             const seg = segments[i]
