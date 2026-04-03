@@ -91,8 +91,6 @@ function pathOf(segments: string[]): string | undefined {
  * const result = CastleGuard.inspects(filter, filterOptions)
  * if (!result.ok) console.error(result.issues)
  * ```
- *
- * Also accessible as `CaslBridge.Guard`.
  */
 export class CastleGuard {
     /**

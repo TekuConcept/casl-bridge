@@ -26,13 +26,6 @@ function issueWithCode(result: FilterAnalysisResult, code: string) {
 
 describe('CastleGuard', () => {
 
-    // ── CaslBridge.Guard alias ──────────────────────────────────────────────
-    describe('CaslBridge.Guard', () => {
-        it('should be the CastleGuard class', () => {
-            expect(CaslBridge.Guard).to.equal(CastleGuard)
-        })
-    })
-
     // ── validates / inspects basics ─────────────────────────────────────────
     describe('valid filters', () => {
         it('should accept an empty filter', () => {
