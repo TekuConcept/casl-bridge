@@ -108,6 +108,13 @@ function rawColumn(node: ICondition): string | null {
  *  - `"false"` – replaces the violating branch with `LiteralCondition(false)`,
  *                then simplifies the surrounding boolean context.
  *  - `"strip"` – removes the violating branch entirely.
+ * 
+ * Boolean simplification rules (identical to DepthLimiter):
+ *
+ *   OR (false, x)  → OR(x)        OR (true, x)   → true
+ *   AND(true,  x)  → AND(x)       AND(false, x)  → false
+ *   NOT(false)     → true         NOT(true)      → false
+ *   empty scope    → null (no constraint, equivalent to being stripped)
  *
  * CASL ability trees are **not** passed through this class; only
  * external filter trees compiled via `compileExternalFilterTree`.
@@ -139,15 +146,19 @@ export class PathPolicyEnforcer {
         if (result === root) return { tree: root, issues: [] }
 
         if (result === null) {
+            // Strip / collapse: everything removed → empty root = no WHERE clause
             root.clear()
             return { tree: root, issues: [] }
         }
 
+        // Root simplified to a LiteralCondition
         const literal = result as LiteralCondition
         root.clear()
         if (!literal.value) {
+            // false → make root emit (1=0)
             root.push(literal)
         }
+        // true → empty root = no WHERE clause (equivalent to no filter)
         return { tree: root, issues: [] }
     }
 
@@ -155,13 +166,25 @@ export class PathPolicyEnforcer {
     // Private helpers
     // ------------------------------------------------------------------
 
+    /**
+     * Recursively enforces the policy on `node` given the accumulated
+     * `joinPath` (ordered list of join-scope column names above this node).
+     *
+     * Returns:
+     *   - the same node (possibly mutated in-place) if it should remain,
+     *   - a new `LiteralCondition` if the node was collapsed to a constant,
+     *   - `null` if the node should be stripped.
+     */
     private enforceNode(
         node: ConditionTree,
         joinPath: string[],
     ): ConditionTree | null {
+        // ── Literal – always pass through (already a synthetic constant) ──
         if (node.type === 'literal') return node
 
+        // ── Primitive leaf ────────────────────────────────────────────────
         if (node.type === 'primitive') {
+            // null column = synthetic empty-result node; skip policy check
             const col = rawColumn(node)
             if (col !== null) {
                 const path = joinPath.length > 0
@@ -174,6 +197,7 @@ export class PathPolicyEnforcer {
             return node
         }
 
+        // ── Scoped (AND / OR / NOT) node ──────────────────────────────────
         const scoped = node as ScopedCondition
         const ownCol = rawColumn(scoped)
 
@@ -181,18 +205,24 @@ export class PathPolicyEnforcer {
             ? [...joinPath, ownCol]
             : joinPath
 
+        // ── Recurse into children ─────────────────────────────────────────
         const newConditions: ICondition[] = []
         for (const child of scoped.conditions) {
             const result = this.enforceNode(child as ConditionTree, nextJoinPath)
             if (result !== null) {
                 newConditions.push(result)
             }
+            // null ⇒ stripped: do not add to newConditions
+
+            // If the child was stripped or replaced by a new node, unlink the
+            // original to break circular parent↔child references and allow GC.
             if (result !== (child as ConditionTree)) {
                 child.unlink()
             }
         }
         scoped.conditions = newConditions
 
+        // Fix parent back-references for any new nodes that were inserted.
         for (const c of newConditions) {
             c.parent = scoped
         }
@@ -200,6 +230,9 @@ export class PathPolicyEnforcer {
         return this.simplify(scoped)
     }
 
+    /**
+     * Produces the appropriate replacement node for a policy violation.
+     */
     private handleViolation(path: string): LiteralCondition | null {
         switch (this.onViolation) {
         case 'throw':
@@ -215,6 +248,15 @@ export class PathPolicyEnforcer {
         }
     }
 
+    /**
+     * Applies one pass of boolean simplification to `scoped` after its
+     * children have been updated.
+     *
+     * Returns:
+     *   - `scoped` (possibly mutated) if it should remain in the tree,
+     *   - a new `LiteralCondition` if the scope collapsed to a constant,
+     *   - `null` if the scope should be stripped (empty = no constraint).
+     */
     private simplify(scoped: ScopedCondition): ConditionTree | null {
         const conditions = scoped.conditions
 
@@ -230,8 +272,10 @@ export class PathPolicyEnforcer {
 
         switch (scoped.scope) {
         case ScopeOp.AND: {
+            // AND(…, false, …) = false
             if (literals.some(l => !l.value))
                 return new LiteralCondition(false)
+            // AND(…, true, …) = AND(…) – remove true literals
             const andRest = conditions.filter(
                 c => c.type !== 'literal' || !(c as LiteralCondition).value
             )
@@ -239,12 +283,15 @@ export class PathPolicyEnforcer {
                 .filter(c => c.type === 'literal' && (c as LiteralCondition).value)
                 .forEach(c => c.unlink())
             scoped.conditions = andRest
+            // All children were true literals → AND(true,…,true) = true = no constraint
             if (andRest.length === 0) return null
             return scoped
         }
         case ScopeOp.OR: {
+            // OR(…, true, …) = true
             if (literals.some(l => l.value))
                 return new LiteralCondition(true)
+            // OR(…, false, …) = OR(…) – remove false literals
             const orRest = conditions.filter(
                 c => c.type !== 'literal' || (c as LiteralCondition).value
             )
@@ -252,10 +299,14 @@ export class PathPolicyEnforcer {
                 .filter(c => c.type === 'literal' && !(c as LiteralCondition).value)
                 .forEach(c => c.unlink())
             scoped.conditions = orRest
+            // All children were false literals → OR(false,…,false) = false
             if (orRest.length === 0) return new LiteralCondition(false)
             return scoped
         }
         case ScopeOp.NOT: {
+            // NOT should wrap exactly one child in valid trees.
+            // Because we only enter simplify() when literals.length > 0,
+            // literals[0] is always defined here.
             return new LiteralCondition(!literals[0].value)
         }
         }
