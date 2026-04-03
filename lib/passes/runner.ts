@@ -4,7 +4,11 @@ import { TypeOrmTableInfo } from '../schema'
 import { PassResult, PassIssue } from './types'
 import { DepthLimiter } from './depth-limiter'
 import { PathPolicyEnforcer } from './path-policy-enforcer'
-import { RelationIdRewriter, RelationMetaProvider, RelationIdMeta } from './relation-id-rewriter'
+import {
+    RelationIdRewriter,
+    RelationMetaProvider,
+    RelationIdMeta,
+} from './relation-id-rewriter'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context types

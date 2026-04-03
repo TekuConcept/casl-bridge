@@ -6,7 +6,6 @@ import { PrimOp, ScopeOp } from '../condition/types'
 import {
     PassFn,
     SchemaLessPassContext,
-    SchemaAwarePassContext,
     runPasses,
     schemaLessExternalPasses,
     schemaAwareExternalPasses,
@@ -14,8 +13,7 @@ import {
     pathPolicyPass,
     relationIdRewriterPass,
 } from './runner'
-import { PassResult, PassError } from './types'
-import { ConditionTree } from '../condition/types'
+import { PassError } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
