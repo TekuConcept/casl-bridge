@@ -81,7 +81,7 @@ describe('TypeOrmSchema', () => {
 
         describe('forEach', () => {
             it('should iterate over columns', () => {
-                const expected = [ 'id', 'title', 'author' ]
+                const expected = [ 'id', 'title', 'metadata', 'author' ]
 
                 const tableInfo = new TypeOrmTableInfo(repo)
                 const callback = sinon.stub().callsFake(info => {
@@ -89,7 +89,7 @@ describe('TypeOrmSchema', () => {
                 })
 
                 tableInfo.forEach(callback)
-                expect(callback.callCount).to.equal(3)
+                expect(callback.callCount).to.equal(4)
             })
 
             it('should break on column callback return', () => {
@@ -107,7 +107,7 @@ describe('TypeOrmSchema', () => {
                 })
 
                 tableInfo.forEach(callback)
-                expect(callback.callCount).to.equal(3)
+                expect(callback.callCount).to.equal(4)
                 // coverage test will be 100% if this passes
             })
         })
@@ -276,6 +276,7 @@ describe('TypeOrmSchema', () => {
                     shrink(`
                         SELECT "book"."id" AS "book_id",
                                "book"."title" AS "book_title",
+                               "book"."metadata" AS "book_metadata",
                                "book"."authorId" AS "book_authorId"
                         FROM "book" "book"
                         LEFT JOIN "author" "author"
@@ -294,6 +295,7 @@ describe('TypeOrmSchema', () => {
                     shrink(`
                         SELECT "book"."id" AS "book_id",
                                "book"."title" AS "book_title",
+                               "book"."metadata" AS "book_metadata",
                                "book"."authorId" AS "book_authorId"
                         FROM "book" "book"
                         INNER JOIN "author" "author"
@@ -313,6 +315,7 @@ describe('TypeOrmSchema', () => {
                     shrink(`
                         SELECT "book"."id" AS "book_id",
                                "book"."title" AS "book_title",
+                               "book"."metadata" AS "book_metadata",
                                "book"."authorId" AS "book_authorId"
                         FROM "book" "book"
                         INNER JOIN "author" "author"

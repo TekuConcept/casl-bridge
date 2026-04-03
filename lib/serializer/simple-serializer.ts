@@ -4,6 +4,7 @@ import { ISerializer, SelectPattern } from './types'
 import {
     ConditionTree,
     ICondition,
+    JsonPathAnnotator,
     LiteralCondition,
     PrimOp,
     PrimitiveCondition,
@@ -12,6 +13,7 @@ import {
 } from '../condition'
 import { SimpleSelector } from './simple-selector'
 import { SimpleUtils } from './simple-utils'
+import { DbDialect, renderJsonExtract } from './sql-dialect-adapter'
 
 interface ScopeInfo {
     shared: { counter: number }
@@ -39,6 +41,10 @@ export class SimpleSerializer implements ISerializer {
         builder: IQueryBuilder,
         query: ConditionTree,
     ): IQueryBuilder {
+        // Annotate JSON paths before serializing so that PrimitiveConditions
+        // inside JSON column scopes carry their jsonColumn/jsonPath/jsonTableAlias.
+        new JsonPathAnnotator(this.table).apply(query)
+
         const rootScope: ScopeInfo = {
             shared: { counter: builder.nextParamId() },
             table: this.table,
@@ -100,6 +106,9 @@ export class SimpleSerializer implements ISerializer {
         condition: ScopedCondition
     ) {
         if (!condition.join) return scopeInfo.table
+
+        // JSON traversal scopes are annotated by JsonPathAnnotator; no DB join.
+        if (condition.isJsonTraversal) return scopeInfo.table
 
         const column = scopeInfo.table.getColumn(condition.column)
         if (!column) throw new Error(
@@ -183,20 +192,44 @@ export class SimpleSerializer implements ISerializer {
         }
 
         const { where } = scopeInfo
-        const { alias, column, operator, operand } = condition
+        const { operator, operand } = condition
+        const param = `param_${scopeInfo.shared.counter++}`
 
-        const columnInfo = scopeInfo.table.getColumn(column)
-        if (!columnInfo) throw new Error(
-            `Column '${column}' not found in table '${scopeInfo.table.classType()}'`
-        )
+        // Build the SQL left-operand: either a JSON extraction expression or
+        // a plain column reference.
+        let path: string
 
-        const quotedAlias  = SimpleUtils.getQuotedAlias(
-            scopeInfo.table,
-            alias
-        )
-        const quotedColumn = columnInfo.getQuotedName()
-        const path         = `${quotedAlias}.${quotedColumn}`
-        const param        = `param_${scopeInfo.shared.counter++}`
+        if (condition.jsonColumn != null) {
+            // JSON path condition — emit dialect-specific extraction expression.
+            const { jsonColumn, jsonPath, jsonTableAlias } = condition
+            const jsonColInfo = scopeInfo.table.getColumn(jsonColumn)
+            if (!jsonColInfo) throw new Error(
+                `Column '${jsonColumn}' not found in table '${scopeInfo.table.classType()}'`
+            )
+            const quotedAlias = SimpleUtils.getQuotedAlias(
+                scopeInfo.table, jsonTableAlias ?? condition.alias
+            )
+            const quotedColumn = jsonColInfo.getQuotedName()
+            const columnSql = `${quotedAlias}.${quotedColumn}`
+            path = renderJsonExtract(
+                this.table.getDialectType() as DbDialect,
+                columnSql,
+                jsonPath,
+            )
+        } else {
+            // Normal column reference.
+            const { alias, column } = condition
+            const columnInfo = scopeInfo.table.getColumn(column)
+            if (!columnInfo) throw new Error(
+                `Column '${column}' not found in table '${scopeInfo.table.classType()}'`
+            )
+            const quotedAlias  = SimpleUtils.getQuotedAlias(
+                scopeInfo.table,
+                alias
+            )
+            const quotedColumn = columnInfo.getQuotedName()
+            path               = `${quotedAlias}.${quotedColumn}`
+        }
 
         switch (operator) {
         case PrimOp.EQUAL:            where(`${path}  = :${param}`, { [param]: operand }); break

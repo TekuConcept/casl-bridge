@@ -122,6 +122,16 @@ export class SimpleSelector {
 
         let nextTable = table
         if (query.join) {
+            if (query.isJsonTraversal) {
+                // JSON path scope: select the JSON column itself and stop
+                // recursing — the sub-path is embedded in the column value.
+                const column = table.getColumn(query.column)
+                if (!column) return []
+                const parentAlias = query.parent ? query.parent.alias : query.alias
+                const quotedAlias  = SimpleUtils.getQuotedAlias(table, parentAlias)
+                const quotedColumn = column.getQuotedName()
+                return [`${quotedAlias}.${quotedColumn}`]
+            }
             const column = table.getColumn(query.column)
             if (!column) return [] // ignore unknown columns
             nextTable = column.getRelation()

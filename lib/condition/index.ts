@@ -1,5 +1,6 @@
 export * from './base-condition'
 export * from './depth-limiter'
+export * from './json-path-annotator'
 export * from './literal-condition'
 export * from './mongo-query'
 export * from './path-policy-enforcer'

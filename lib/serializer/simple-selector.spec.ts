@@ -244,6 +244,55 @@ describe('SimpleSelector', () => {
             scope.unlink()
             selectQueryPattern.restore()
         })
+
+        it('should select the JSON column for an isJsonTraversal scope', () => {
+            // Simulate what happens after JsonPathAnnotator marks a scope
+            const root = new ScopedCondition({
+                alias: '__table__',
+                join: false,
+            })
+            const metaScope = new ScopedCondition({
+                join: true,
+                column: 'metadata',
+                isJsonTraversal: true,
+            })
+            root.push(metaScope)
+
+            const result = selector.selectScopedCondition(table, metaScope)
+
+            // Should return the JSON column reference for the parent alias
+            expect(result).to.deep.equal([ '__table__.metadata' ])
+        })
+
+        it('should select the JSON column using scope alias when scope has no parent', () => {
+            // Covers the `query.parent ? ... : query.alias` else-branch in
+            // selectScopedCondition when isJsonTraversal is true and parent is null.
+            const scope = new ScopedCondition({
+                alias: '__standalone__',
+                join: true,
+                column: 'metadata',
+                isJsonTraversal: true,
+            })
+            // scope.parent is null (no parent set)
+
+            const result = selector.selectScopedCondition(table, scope)
+
+            // Falls back to scope.alias when parent is null
+            expect(result).to.deep.equal([ '__standalone__.metadata' ])
+        })
+
+        it('should return empty array when isJsonTraversal scope column is unknown', () => {
+            // Covers `if (!column) return []` inside isJsonTraversal branch.
+            const scope = new ScopedCondition({
+                join: true,
+                column: 'nonexistent',
+                isJsonTraversal: true,
+            })
+
+            const result = selector.selectScopedCondition(table, scope)
+
+            expect(result).to.deep.equal([])
+        })
     })
 
     describe('selectPrimitiveCondition', () => {
@@ -281,7 +330,8 @@ describe('SimpleSelector', () => {
             // NOTE: better-sqlite3 uses double quotes for quoting
             expect(result).to.deep.equal([
                 '__table__.id',
-                '__table__.title'
+                '__table__.title',
+                '__table__.metadata',
             ])
         })
     })
@@ -301,6 +351,7 @@ describe('SimpleSelector', () => {
             expect(result).to.deep.equal([
                 '__table__.id',
                 '__table__.title',
+                '__table__.metadata',
                 '__table__.author',
                 '__table___author.id',
                 '__table___author.name',
