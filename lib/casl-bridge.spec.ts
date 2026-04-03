@@ -1365,6 +1365,46 @@ describe('CaslBridge', () => {
                 expect(sql).to.not.contain('LEFT JOIN')
                 expect(sql).to.contain('"authorId"')
             })
+
+            it('must retain JOIN for a one-to-many (inverse-side) relation — empty joinColumns', async () => {
+                // Author.books is one-to-many (inverse side).  TypeORM returns
+                // joinColumns = [] for this relation because the FK lives on Book,
+                // not on Author.  makeRelationMetaProvider returns null at the
+                // joinColumns.length === 0 guard → no rewrite → JOIN retained.
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Author', {
+                    books: { title: 'The Book' },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.contain('LEFT JOIN')
+            })
+
+            it('must retain JOIN for a many-to-many relation — join-table FK not on entity', async () => {
+                // Author.comments is many-to-many (owning side).  TypeORM populates
+                // joinColumns with the join-table column 'author_id', which does NOT
+                // exist as a property on Author.  The hasColumn guard filters all
+                // joinColumns out → empty fkMapping → makeRelationMetaProvider returns null
+                // → no rewrite → JOIN retained.
+                const bridge = new CaslBridge(db.source)
+                const query = bridge.createFilterFor('Author', {
+                    comments: { id: 5 },
+                })
+                const sql = shrink(query.getSql())
+
+                expect(sql).to.contain('LEFT JOIN')
+            })
+
+            it('must retain JOIN when the filter relation does not exist on the entity', async () => {
+                // If a join scope's column name is not a relation on the entity,
+                // makeRelationMetaProvider returns null → join scope is left for the
+                // serializer to handle.  The serializer then throws because the
+                // column is not joinable.
+                const bridge = new CaslBridge(db.source)
+                expect(() => bridge.createFilterFor('Book', {
+                    author: { name: { nested: 'x' } },
+                } as any)).to.throw()
+            })
         })
     })
 })

@@ -278,6 +278,29 @@ describe('RelationIdRewriter', () => {
                 expect((r.conditions[0] as ScopedCondition).join).to.equal(true)
                 r.unlink()
             })
+
+            it('must skip a join scope whose _column is null (defensive null-column guard)', () => {
+                // A join scope with no column set is treated as unrecognised and skipped.
+                // The provider must NOT be called, and the scope must remain intact.
+                const nullColJoin = new ScopedCondition({ join: true, scope: ScopeOp.AND })
+                // _column is null by default (no column argument)
+                nullColJoin.push(prim('id', 5))
+                const r = root('__table__', nullColJoin)
+
+                let providerCalled = false
+                const rw = new RelationIdRewriter((_rel) => {
+                    providerCalled = true
+                    return null
+                })
+                rw.apply(r)
+
+                // Provider must NOT have been called for the null-column join scope
+                expect(providerCalled).to.equal(false)
+                // Scope must remain unchanged
+                expect(r.conditions).to.have.length(1)
+                expect((r.conditions[0] as ScopedCondition).join).to.equal(true)
+                r.unlink()
+            })
         })
 
         // ─────────────────────────────────────────────────────────────────
@@ -405,6 +428,29 @@ describe('RelationIdRewriter', () => {
                 }))
                 rw.apply(r)
 
+                expect((r.conditions[0] as ScopedCondition).join).to.equal(true)
+                r.unlink()
+            })
+
+            it('should treat a null-column primitive inside a join scope as non-rewritable (canRewrite returns false)', () => {
+                // A PrimitiveCondition with _column === null (e.g. EMPTY_RESULT) is not
+                // rewritable — its column cannot be mapped via fkMapping.
+                const join = joinScope('author', '__table__')
+                const nullColPrim = new PrimitiveCondition({
+                    // column deliberately omitted → _column stays null
+                    operator: PrimOp.EMPTY_RESULT,
+                    operand: null,
+                })
+                join.push(nullColPrim)
+                const r = root('__table__', join)
+
+                const rw = new RelationIdRewriter(provider({
+                    author: { fkMapping: { id: 'author' }, childProvider: null },
+                }))
+                rw.apply(r)
+
+                // canRewrite returns false → join scope retained unchanged
+                expect(r.conditions).to.have.length(1)
                 expect((r.conditions[0] as ScopedCondition).join).to.equal(true)
                 r.unlink()
             })

@@ -39,6 +39,7 @@ export class Author {
     id: number
     name: string
     comments: Comment[] // many-to-many relation
+    books: Book[]        // one-to-many (inverse side — no FK column on Author)
 }
 
 export class Book {
@@ -119,6 +120,14 @@ export const AuthorSchema = new EntitySchema<Author>({
                     referencedColumnName: 'id',
                 },
             },
+        },
+        books: {
+            // Inverse side of Book.author – Author has no FK column for this.
+            // TypeORM therefore returns joinColumns: [] for this relation,
+            // exercising the empty-joinColumns guard in makeRelationMetaProvider.
+            type: 'one-to-many',
+            target: 'Book',
+            inverseSide: 'author',
         },
     },
 })

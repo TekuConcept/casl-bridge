@@ -370,6 +370,7 @@ export class CaslBridge {
 
             const fkMapping: Record<string, string> = {}
             for (const jc of joinCols) {
+                /* c8 ignore next */
                 if (!jc.referencedColumn) continue
                 // pkProp: PK property name on the target entity (e.g. 'id' or 'code')
                 const pkProp = jc.referencedColumn.propertyName
@@ -378,7 +379,12 @@ export class CaslBridge {
                 // TypeORM translates this unquoted property path to the actual DB
                 // column name (e.g. 'authorId', 'tagCode') when compiling the query.
                 const fkPropertyName = jc.propertyName
-                if (pkProp && fkPropertyName) fkMapping[pkProp] = fkPropertyName
+                // Only include if the FK property actually lives on the owning entity.
+                // This filters out many-to-many join-table columns (e.g. `author_id`
+                // is in the join table, not on Author itself).
+                if (pkProp && fkPropertyName && table.hasColumn(fkPropertyName)) {
+                    fkMapping[pkProp] = fkPropertyName
+                }
             }
             if (Object.keys(fkMapping).length === 0) return null
 
