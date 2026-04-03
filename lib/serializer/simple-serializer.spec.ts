@@ -652,8 +652,7 @@ describe('SimpleSerializer', () => {
         })
     })
 
-    describe('serializeLiteralCondition', () => {
-        let scopeInfo: any
+    describe('serializeLiteralCondition', () => {        let scopeInfo: any
 
         beforeEach(() => {
             const builder = table.createQueryBuilder('__test__')
@@ -692,6 +691,86 @@ describe('SimpleSerializer', () => {
             expect(spy.calledOnceWith(scopeInfo, condition)).to.be.true
 
             spy.restore()
+        })
+    })
+
+    describe('empty-list operands', () => {
+        it('should serialize $in: [] as (1=0) and not produce IN ()', () => {
+            const query = new MongoQuery({ id: { $in: [] } } as any)
+            const tree = query.build('__test__')
+            const builder = serializer.serialize(tree)
+
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            expect(sql).to.contain('1=0')
+            expect(sql).to.not.contain('IN ()')
+            expect(sql).to.not.contain('IN ( )')
+        })
+
+        it('should serialize $nin: [] as (1=1) and not produce NOT IN ()', () => {
+            const query = new MongoQuery({ id: { $nin: [] } } as any)
+            const tree = query.build('__test__')
+            const builder = serializer.serialize(tree)
+
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            expect(sql).to.contain('1=1')
+            expect(sql).to.not.contain('NOT IN ()')
+            expect(sql).to.not.contain('NOT IN ( )')
+        })
+
+        it('should serialize $notIn: [] as (1=1) and not produce NOT IN ()', () => {
+            const query = new MongoQuery({ id: { $notIn: [] } } as any)
+            const tree = query.build('__test__')
+            const builder = serializer.serialize(tree)
+
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            expect(sql).to.contain('1=1')
+            expect(sql).to.not.contain('NOT IN ()')
+        })
+
+        it('should preserve non-empty $in list behaviour', () => {
+            const query = new MongoQuery({ id: { $in: [1, 2, 3] } })
+            const tree = query.build('__test__')
+            const builder = serializer.serialize(tree)
+
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            expect(sql).to.contain('IN')
+            expect(sql).to.not.contain('1=0')
+        })
+
+        it('should simplify AND($in: [], other) to (1=0) via boolean simplification', () => {
+            const query = new MongoQuery({ $and: [{ id: { $in: [] } }, { title: 'foo' }] } as any)
+            const tree = query.build('__test__')
+
+            // apply DepthLimiter to trigger simplification (maxDepth=99, no violations)
+            const { DepthLimiter } = require('@/condition')
+            const limiter = new DepthLimiter(99, 'false')
+            const simplified = limiter.apply(tree)
+
+            const builder = serializer.serialize(simplified)
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            expect(sql).to.contain('1=0')
+            expect(sql).to.not.contain('IN ()')
+        })
+
+        it('should simplify OR($nin: [], other) to preserve the other branch', () => {
+            const query = new MongoQuery({ $or: [{ id: { $nin: [] } }, { title: 'foo' }] } as any)
+            const tree = query.build('__test__')
+
+            // apply DepthLimiter to trigger simplification
+            const { DepthLimiter } = require('@/condition')
+            const limiter = new DepthLimiter(99, 'false')
+            const simplified = limiter.apply(tree)
+
+            const builder = serializer.serialize(simplified)
+            builder.data.select([])
+            const sql = shrink(builder.data.getSql())
+            // OR(true, x) = true → no WHERE clause (or just (1=1))
+            expect(sql).to.not.contain('NOT IN ()')
         })
     })
 })
