@@ -1,11 +1,11 @@
 import 'mocha'
 import { expect } from 'chai'
-import { PathPolicyEnforcer } from './path-policy-enforcer'
-import { LiteralCondition } from './literal-condition'
-import { ScopedCondition } from './scoped-condition'
-import { PrimitiveCondition } from './primitive-condition'
-import { PrimOp, ScopeOp } from './types'
+import { LiteralCondition } from '../condition/literal-condition'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { PrimOp, ScopeOp } from '../condition/types'
 import { PathPolicy } from '../types'
+import { PathPolicyEnforcer } from './path-policy-enforcer'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers (mirror depth-limiter.spec.ts conventions)

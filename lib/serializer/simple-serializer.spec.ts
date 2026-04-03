@@ -3,7 +3,7 @@ import * as sinon from 'sinon'
 import { expect } from 'chai'
 import { TestDatabase } from '@/test-db'
 import { TypeOrmTableInfo } from '@/schema'
-import { SimpleSerializer } from './simple-serializer'
+import { DepthLimiter } from '@/passes/depth-limiter'
 import {
     MongoQuery,
     PrimOp,
@@ -11,6 +11,7 @@ import {
     ScopeOp,
     ScopedCondition
 } from '@/condition'
+import { SimpleSerializer } from './simple-serializer'
 
 describe('SimpleSerializer', () => {
     let db: TestDatabase
@@ -747,7 +748,6 @@ describe('SimpleSerializer', () => {
             const tree = query.build('__test__')
 
             // apply DepthLimiter to trigger simplification (maxDepth=99, no violations)
-            const { DepthLimiter } = require('@/condition')
             const limiter = new DepthLimiter(99, 'false')
             const simplified = limiter.apply(tree).tree
 
@@ -763,7 +763,6 @@ describe('SimpleSerializer', () => {
             const tree = query.build('__test__')
 
             // apply DepthLimiter to trigger simplification
-            const { DepthLimiter } = require('@/condition')
             const limiter = new DepthLimiter(99, 'false')
             const simplified = limiter.apply(tree).tree
 

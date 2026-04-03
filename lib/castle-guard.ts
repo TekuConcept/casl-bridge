@@ -9,7 +9,6 @@ import {
     PathPolicyEnforcer,
     PassError,
     isAllowedByPolicy,
-    matchesPattern,
     normalizePolicy,
 } from './passes'
 

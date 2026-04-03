@@ -1,7 +1,6 @@
 import 'mocha'
 import { expect } from 'chai'
 import { CastleGuard, FilterAnalysisResult } from './castle-guard'
-import { CaslBridge } from './casl-bridge'
 import { FilterOptions } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────

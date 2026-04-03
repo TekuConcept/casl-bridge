@@ -1,10 +1,10 @@
 import 'mocha'
 import { expect } from 'chai'
+import { LiteralCondition } from '../condition/literal-condition'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { PrimOp, ScopeOp } from '../condition/types'
 import { TreeMerger } from './tree-merger'
-import { LiteralCondition } from './literal-condition'
-import { ScopedCondition } from './scoped-condition'
-import { PrimitiveCondition } from './primitive-condition'
-import { PrimOp, ScopeOp } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
