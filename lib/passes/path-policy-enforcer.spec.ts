@@ -75,14 +75,16 @@ describe('PathPolicyEnforcer', () => {
                 r.unlink()
             })
 
-            it('should throw for a root-level field that matches a deny rule', () => {
+            it('should report PATH_POLICY_VIOLATION for a root-level field that matches a deny rule', () => {
                 const r = root('__table__', andScope())
                 const inner = r.conditions[0] as ScopedCondition
                 inner.push(prim('id'))
 
                 const e = enforcer({ rules: [{ path: 'id', decision: 'deny' }] })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "id" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].message).to.include('"id" is not permitted')
                 r.unlink()
             })
 
@@ -97,14 +99,16 @@ describe('PathPolicyEnforcer', () => {
                 r.unlink()
             })
 
-            it('should throw for an exact nested field that matches a deny rule', () => {
+            it('should report PATH_POLICY_VIOLATION for an exact nested field that matches a deny rule', () => {
                 const authorJoin = joinScope('author', '__table__')
                 authorJoin.push(prim('name'))
                 const r = root('__table__', authorJoin)
 
                 const e = enforcer({ rules: [{ path: 'author.name', decision: 'deny' }] })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.name" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].path).to.equal('author.name')
                 r.unlink()
             })
 
@@ -148,8 +152,9 @@ describe('PathPolicyEnforcer', () => {
                         { path: 'author.name', decision: 'allow' },
                     ],
                 })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.name" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
                 r.unlink()
             })
         })
@@ -163,8 +168,10 @@ describe('PathPolicyEnforcer', () => {
                 const r = root('__table__', authorJoin)
 
                 const e = enforcer({ rules: [{ path: 'author.**', decision: 'deny' }] })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.name" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].path).to.equal('author.name')
                 r.unlink()
             })
 
@@ -184,14 +191,15 @@ describe('PathPolicyEnforcer', () => {
             it('should not match the join relation itself, only its field descendants', () => {
                 // "author.**" should NOT match the bare path "author"
                 // (enforcement is at the primitive level; joins are traversal only).
-                // With deny author.** the primitive 'author.name' IS matched → throw.
+                // With deny author.** the primitive 'author.name' IS matched → issue.
                 const authorJoin = joinScope('author', '__table__')
                 authorJoin.push(prim('name'))
                 const r = root('__table__', authorJoin)
 
                 const e = enforcer({ rules: [{ path: 'author.**', decision: 'deny' }] })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.name" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].path).to.equal('author.name')
                 r.unlink()
             })
 
@@ -207,8 +215,10 @@ describe('PathPolicyEnforcer', () => {
                 // deny author.** → fires on the first primitive whose path starts with "author."
                 // That is author.publisher.city
                 const e = enforcer({ rules: [{ path: 'author.**', decision: 'deny' }] })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.publisher.city" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].path).to.equal('author.publisher.city')
                 r.unlink()
             })
 
@@ -230,8 +240,9 @@ describe('PathPolicyEnforcer', () => {
                         { path: 'author.**', decision: 'deny' },
                     ],
                 })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "author.publisher.city" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].path).to.equal('author.publisher.city')
                 r.unlink()
             })
         })
@@ -265,8 +276,10 @@ describe('PathPolicyEnforcer', () => {
                 inner.push(prim('id'))
 
                 const e = enforcer({ default: 'deny' })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "id" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].path).to.equal('id')
                 r.unlink()
             })
 
@@ -292,15 +305,16 @@ describe('PathPolicyEnforcer', () => {
                     default: 'allow',
                     rules: [{ path: 'id', decision: 'deny' }],
                 })
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "id" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
                 r.unlink()
             })
         })
 
         // ─────────────────────────────────────────────────────────────────
         describe('onViolation throw', () => {
-            it('should throw immediately when a field is denied', () => {
+            it('should report PATH_POLICY_VIOLATION when a field is denied', () => {
                 const r = root('__table__', andScope())
                 const inner = r.conditions[0] as ScopedCondition
                 inner.push(prim('id'))
@@ -309,18 +323,22 @@ describe('PathPolicyEnforcer', () => {
                     { rules: [{ path: 'id', decision: 'deny' }] },
                     'throw'
                 )
-                expect(() => e.apply(r))
-                    .to.throw('Filter path "id" is not permitted by PathPolicy')
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
+                expect(result.issues[0].message).to.include('"id" is not permitted')
                 r.unlink()
             })
 
-            it('should default to throw when onViolation is omitted', () => {
+            it('should default to throw mode when onViolation is omitted', () => {
                 const r = root('__table__', andScope())
                 const inner = r.conditions[0] as ScopedCondition
                 inner.push(prim('id'))
 
                 const e = new PathPolicyEnforcer({ rules: [{ path: 'id', decision: 'deny' }] })
-                expect(() => e.apply(r)).to.throw()
+                const result = e.apply(r)
+                expect(result.issues).to.have.length(1)
+                expect(result.issues[0].code).to.equal('PATH_POLICY_VIOLATION')
                 r.unlink()
             })
         })

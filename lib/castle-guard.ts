@@ -5,11 +5,12 @@ import { MongoQuery, MongoQueryObjects } from './condition'
 import { TypeOrmTableInfo } from './schema'
 import { ITableInfo } from './schema/types'
 import {
-    DepthLimiter,
-    PathPolicyEnforcer,
-    PassError,
+    PassIssue,
     isAllowedByPolicy,
     normalizePolicy,
+    SchemaLessPassContext,
+    runPasses,
+    schemaLessExternalPasses,
 } from './passes'
 
 type FilterObject = MongoQueryObjects
@@ -123,8 +124,8 @@ export class CastleGuard {
     ): void {
         // Safety checks (unknown operators, shapes, unsafe keys/paths).
         new GuardWalker('throw').walk(filter)
-        // Depth and pathPolicy enforced via the shared AST passes (same
-        // functions used by CaslBridge) so behaviour is identical.
+        // Depth and pathPolicy enforced via the shared pass runner (same
+        // passes used by CaslBridge) so behaviour is identical.
         applyPolicyPasses(filter, filterOptions)
     }
 
@@ -146,32 +147,21 @@ export class CastleGuard {
         walker.walk(filter)
         const issues: FilterIssue[] = [...walker.issues]
 
-        // Depth and pathPolicy via the shared AST passes.
-        // Each pass throws a PassError on its first violation; we catch it
-        // and convert to a FilterIssue (consistent with CaslBridge behaviour
-        // of stopping at the first depth/policy violation).
+        // Depth and pathPolicy via the shared pass runner.
+        // Passes are issues-only: they never throw; we collect their issues here.
         if (filterOptions?.maxDepth !== undefined || filterOptions?.pathPolicy !== undefined) {
             try {
                 const clone = deepCloneFilter(filter)
                 const tree = new MongoQuery(clone).build('__root__')
-
-                if (filterOptions?.maxDepth !== undefined) {
-                    try {
-                        new DepthLimiter(filterOptions.maxDepth, 'throw').apply(tree)
-                    } catch (e) {
-                        issues.push(passErrorToIssue(e, 'MAX_DEPTH_EXCEEDED'))
-                    }
+                const ctx: SchemaLessPassContext = {
+                    alias: '__root__',
+                    filterOptions,
                 }
-                if (filterOptions?.pathPolicy !== undefined) {
-                    try {
-                        new PathPolicyEnforcer(filterOptions.pathPolicy, 'throw').apply(tree)
-                    } catch (e) {
-                        issues.push(passErrorToIssue(e, 'PATH_POLICY_VIOLATION'))
-                    }
-                }
+                const result = runPasses(tree, ctx, schemaLessExternalPasses)
+                issues.push(...result.issues.map(passIssueToFilterIssue))
             } catch {
-                // MongoQuery.build() threw — the structural issues were already
-                // captured by GuardWalker above; skip AST passes.
+                // MongoQuery.build() threw — structural issues already captured
+                // by GuardWalker above; skip AST passes.
             }
         }
 
@@ -239,7 +229,7 @@ export class CastleGuard {
     ): void {
         // Safety checks.
         new GuardWalker('throw').walk(filter)
-        // Depth and pathPolicy via shared AST passes.
+        // Depth and pathPolicy via shared pass runner.
         applyPolicyPasses(filter, filterOptions)
         // Schema-aware validation.
         const tableInfo = TypeOrmTableInfo.createFrom(manager, subject)
@@ -270,33 +260,30 @@ function deepCloneFilter(val: any): any {
 }
 
 /**
- * Converts a {@link PassError} (or plain Error) thrown by a pass into a
- * {@link FilterIssue} with the appropriate code and path.
+ * Converts a {@link PassIssue} (from the runner) into a {@link FilterIssue}.
  */
-function passErrorToIssue(e: unknown, fallbackCode: string): FilterIssue {
-    if (e instanceof PassError) {
-        return { code: e.code, message: e.message, path: e.path }
-    }
-    /* c8 ignore next 2 */
-    return { code: fallbackCode, message: (e as Error).message }
+function passIssueToFilterIssue(issue: PassIssue): FilterIssue {
+    return { code: issue.code, message: issue.message, path: issue.path }
 }
 
 /**
- * Runs DepthLimiter and PathPolicyEnforcer (the same passes used by
- * CaslBridge) on a deep clone of `filter`.  Throws on the first violation,
- * exactly as `compileExternalFilterTree` does in CaslBridge.
+ * Runs the schema-less pass pipeline (DepthLimiter + PathPolicyEnforcer) on
+ * a deep clone of `filter` via {@link runPasses}.  Throws with the first
+ * issue's message when any violation is found, exactly as
+ * `compileExternalFilterTree` does in CaslBridge.
  */
 function applyPolicyPasses(filter: FilterObject, filterOptions?: FilterOptions): void {
     if (filterOptions?.maxDepth === undefined && filterOptions?.pathPolicy === undefined) return
 
     const clone = deepCloneFilter(filter)
     const tree = new MongoQuery(clone).build('__root__')
-
-    if (filterOptions?.maxDepth !== undefined) {
-        new DepthLimiter(filterOptions.maxDepth, 'throw').apply(tree)
+    const ctx: SchemaLessPassContext = {
+        alias: '__root__',
+        filterOptions,
     }
-    if (filterOptions?.pathPolicy !== undefined) {
-        new PathPolicyEnforcer(filterOptions.pathPolicy, 'throw').apply(tree)
+    const result = runPasses(tree, ctx, schemaLessExternalPasses)
+    if (result.issues.length > 0) {
+        throw new Error(result.issues[0].message)
     }
 }
 
