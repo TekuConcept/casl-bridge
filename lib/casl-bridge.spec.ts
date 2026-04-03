@@ -136,9 +136,9 @@ describe('CaslBridge', () => {
                         "__table__"."id" AS "__table___id"
                     FROM "book" "__table__"
                     WHERE ((("__table__"."id" = 8) OR
-                            ("__table__"."id" = 2))) AND
-                            ("__table__"."id" > 1 AND
-                             "__table__"."id" < 5)
+                            ("__table__"."id" = 2)) AND
+                            "__table__"."id" > 1 AND
+                            "__table__"."id" < 5)
                 `)
             )
 
@@ -220,6 +220,8 @@ describe('CaslBridge', () => {
             // TypeORM assumes that column names do not contain
             // any of the following: `[' ', '=', '(', ')', ',']`.
             // TypeORM WILL NOT quote these column names!!!
+            // With merge: empty CASL tree contributes nothing; the external
+            // filter is the sole condition (no redundant '1=1').
             expect(shrink(query.getSql())).to.equal(
                 shrink(`
                     SELECT
@@ -229,11 +231,10 @@ describe('CaslBridge', () => {
                         "__table__"."id""_>_0_OR_1-1;_--" AS "__table___id""_>_0_OR_1-1;_--",
                         "__table__"."🤔"                  AS "__table___🤔"
                     FROM "sketchy" "__table__"
-                    WHERE 1=1 AND
-                        ("__table__"."$recycle$" = ? AND
-                         "__table__"."id""_>_0_OR_1-1;_--" IS NOT NULL AND
-                         "__table__"."🤔" >= 1 AND
-                         "__table__"."🤔" <= 10)
+                    WHERE ("__table__"."$recycle$" = ? AND
+                           "__table__"."id""_>_0_OR_1-1;_--" IS NOT NULL AND
+                           "__table__"."🤔" >= 1 AND
+                           "__table__"."🤔" <= 10)
                 `)
             )
 
@@ -307,15 +308,15 @@ describe('CaslBridge', () => {
                     filters: { id: 1 },
                 })
 
-                // When CASL allows all, it emits '1=1'; external filter appended via AND.
+                // With merge: empty CASL tree contributes no conditions;
+                // the external filter is the sole WHERE clause (no '1=1').
                 expect(shrink(query.getSql())).to.equal(
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
                             "__table__"."title" AS "__table___title"
                         FROM "book" "__table__"
-                        WHERE 1=1 AND
-                            ("__table__"."id" = 1)
+                        WHERE ("__table__"."id" = 1)
                     `)
                 )
             })
@@ -356,15 +357,14 @@ describe('CaslBridge', () => {
                     filterOptions: { pathPolicy: policy, onViolation: 'strip' },
                 })
 
-                // denied field stripped → external filter produces no WHERE contribution
-                // (serializer emits 1=1 for the empty stripped tree, same as a no-filter query)
+                // With merge: both trees are empty after stripping →
+                // merged tree is empty → no WHERE clause at all.
                 expect(shrink(query.getSql())).to.equal(
                     shrink(`
                         SELECT
                             "__table__"."id"    AS "__table___id",
                             "__table__"."title" AS "__table___title"
                         FROM "book" "__table__"
-                        WHERE 1=1 AND 1=1
                     `)
                 )
             })
@@ -468,6 +468,132 @@ describe('CaslBridge', () => {
                     filterOptions: { joinType: 'left' },
                 })
                 expect(shrink(withoutOpts.getSql())).to.equal(shrink(withLeft.getSql()))
+            })
+        })
+
+        describe('merge and dedupe', () => {
+            it('should merge ability tree and external filter into one WHERE bracket', () => {
+                // Both ability and filter have conditions → merged into one bracket.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { id: 1 })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { title: 'test' },
+                })
+
+                const sql = shrink(query.getSql())
+                // Both conditions appear inside a single outer bracket.
+                expect(sql).to.contain('WHERE (')
+                expect(sql).to.contain('"__table__"."id"')
+                expect(sql).to.contain('"__table__"."title"')
+                // The SQL should NOT have two separate AND-joined top-level brackets.
+                // (old shape: WHERE (...) AND (...); new shape: WHERE (... AND ...))
+                expect(sql).to.not.match(/WHERE \(.*\) AND \(/)
+            })
+
+            it('should dedupe when ability and external filter both add the same predicate', () => {
+                // Ability: can('read', 'Book', { id: 1 }) produces $or: [{ id: 1 }].
+                // External filter with the same $or structure → structurally identical
+                // top-level OR scope → dedupe removes the duplicate.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { id: 1 })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    // Supply the same $or structure that rulesToQuery generates
+                    filters: { $or: [{ id: 1 }] },
+                })
+
+                const sql = shrink(query.getSql())
+                // "id" = 1 should appear only once after dedup.
+                const matches = sql.match(/"__table__"."id" = 1/g) ?? []
+                expect(matches).to.have.length(1)
+            })
+
+            it('should produce equivalent results with and without dedupe for non-duplicate filters', async () => {
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { id: 2 })
+                builder.can('read', 'Book', { id: 8 })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: { $gt: 1, $lt: 5 } },
+                })
+
+                const entries = await query.getMany()
+                // Only id=2 satisfies both ability (id in [2,8]) and filter (1 < id < 5)
+                expect(entries.length).to.equal(1)
+                expect(entries[0].id).to.equal(2)
+            })
+
+            it('should produce no WHERE clause when both trees are empty after simplification', () => {
+                // Ability: allow all (empty CASL tree)
+                // Filter: path denied + strip → empty filter tree
+                // → merged tree is empty → no WHERE
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: 1 },
+                    filterOptions: {
+                        pathPolicy: { rules: [{ path: 'id', decision: 'deny' }] },
+                        onViolation: 'strip',
+                    },
+                })
+
+                expect(shrink(query.getSql())).to.not.contain('WHERE')
+            })
+
+            it('should produce a clean WHERE clause when CASL is allow-all and filter has conditions', () => {
+                // Ability: allow all → empty tree; external filter: id > 0
+                // Merged: only filter conditions, no spurious "1=1".
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book')
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    filters: { id: { $gt: 0 } },
+                })
+
+                const sql = shrink(query.getSql())
+                // No spurious "1=1 AND" from empty CASL tree.
+                expect(sql).to.not.contain('1=1')
+                expect(sql).to.contain('"__table__"."id" > 0')
+            })
+
+            it('should produce serialisation equivalent to pre-merge semantics', async () => {
+                // Smoke test: results must be the same as before the merge.
+                const builder = new AbilityBuilder(createMongoAbility)
+                builder.can('read', 'Book', { id: 2 })
+                builder.can('read', 'Book', { id: 8 })
+                const ability = builder.build()
+                const b = new CaslBridge(db.source, ability)
+
+                const query = b.createQueryTo({
+                    action: 'read',
+                    subject: 'Book',
+                    select: { id: true },
+                    filters: { id: { $gt: 1, $lt: 5 } },
+                })
+                const entries = await query.getMany()
+                expect(entries).to.deep.equal([{ id: 2 }])
             })
         })
     })

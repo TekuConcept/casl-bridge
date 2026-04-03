@@ -18,6 +18,7 @@ import {
     PathPolicyEnforcer,
     RelationIdRewriter,
     RelationMetaProvider,
+    TreeMerger,
 } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
@@ -184,10 +185,9 @@ export class CaslBridge {
         )
 
         const mongoQuery = new MongoQuery(caslQuery)
-        const tree = mongoQuery.build(options.table)
-        const query = serializer.serialize(
-            tree, options.filterOptions?.joinType ?? 'left')
+        const caslTree = mongoQuery.build(options.table)
 
+        let combined = caslTree
         if (options.filters) {
             const filterTree = this.compileExternalFilterTree(
                 options.filters,
@@ -195,12 +195,16 @@ export class CaslBridge {
                 options.filterOptions,
                 table,
             )
-            serializer.serializeWith(query, filterTree)
-            filterTree.unlink()
+            combined = TreeMerger.merge(caslTree, filterTree) as typeof caslTree
+            filterTree.unlink()  // empty shell after merge — cleanup
         }
 
-        serializer.select(query, tree, options.select)
-        tree.unlink()
+        const query = serializer.serialize(
+            combined, options.filterOptions?.joinType ?? 'left')
+
+        serializer.select(query, combined, options.select)
+        combined.unlink()
+        if (combined !== caslTree) caslTree.unlink()
         return query.data
     }
 
