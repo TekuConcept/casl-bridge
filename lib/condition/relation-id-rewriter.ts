@@ -1,4 +1,4 @@
-import { ConditionTree, ICondition, ScopeOp } from './types'
+import { ConditionTree, ICondition } from './types'
 import { ScopedCondition } from './scoped-condition'
 import { PrimitiveCondition } from './primitive-condition'
 

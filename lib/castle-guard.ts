@@ -1,9 +1,16 @@
 import { DataSource, EntityManager } from 'typeorm'
 import { SubjectType } from '@casl/ability'
 import { FilterOptions, PathPolicy } from './types'
-import { MongoQueryObjects } from './condition'
+import { MongoQuery, MongoQueryObjects } from './condition'
 import { TypeOrmTableInfo } from './schema'
 import { ITableInfo } from './schema/types'
+import {
+    DepthLimiter,
+    PathPolicyEnforcer,
+    PassError,
+    isAllowedByPolicy,
+    normalizePolicy,
+} from './passes'
 
 type FilterObject = MongoQueryObjects
 
@@ -114,7 +121,11 @@ export class CastleGuard {
         filter: FilterObject,
         filterOptions?: FilterOptions,
     ): void {
-        new GuardWalker('throw', filterOptions).walk(filter)
+        // Safety checks (unknown operators, shapes, unsafe keys/paths).
+        new GuardWalker('throw').walk(filter)
+        // Depth and pathPolicy enforced via the shared AST passes (same
+        // functions used by CaslBridge) so behaviour is identical.
+        applyPolicyPasses(filter, filterOptions)
     }
 
     /**
@@ -130,12 +141,41 @@ export class CastleGuard {
         filter: FilterObject,
         filterOptions?: FilterOptions,
     ): FilterAnalysisResult {
-        const walker = new GuardWalker('collect', filterOptions)
+        // Safety checks (unknown operators, shapes, unsafe keys/paths).
+        const walker = new GuardWalker('collect')
         walker.walk(filter)
-        return {
-            ok: walker.issues.length === 0,
-            issues: walker.issues,
+        const issues: FilterIssue[] = [...walker.issues]
+
+        // Depth and pathPolicy via the shared AST passes.
+        // Each pass throws a PassError on its first violation; we catch it
+        // and convert to a FilterIssue (consistent with CaslBridge behaviour
+        // of stopping at the first depth/policy violation).
+        if (filterOptions?.maxDepth !== undefined || filterOptions?.pathPolicy !== undefined) {
+            try {
+                const clone = deepCloneFilter(filter)
+                const tree = new MongoQuery(clone).build('__root__')
+
+                if (filterOptions?.maxDepth !== undefined) {
+                    try {
+                        new DepthLimiter(filterOptions.maxDepth, 'throw').apply(tree)
+                    } catch (e) {
+                        issues.push(passErrorToIssue(e, 'MAX_DEPTH_EXCEEDED'))
+                    }
+                }
+                if (filterOptions?.pathPolicy !== undefined) {
+                    try {
+                        new PathPolicyEnforcer(filterOptions.pathPolicy, 'throw').apply(tree)
+                    } catch (e) {
+                        issues.push(passErrorToIssue(e, 'PATH_POLICY_VIOLATION'))
+                    }
+                }
+            } catch {
+                // MongoQuery.build() threw — the structural issues were already
+                // captured by GuardWalker above; skip AST passes.
+            }
         }
+
+        return { ok: issues.length === 0, issues }
     }
 
     /**
@@ -197,11 +237,66 @@ export class CastleGuard {
         filter: FilterObject,
         filterOptions?: FilterOptions,
     ): void {
-        // Run grammar + policy validation first.
-        new GuardWalker('throw', filterOptions).walk(filter)
-        // Then run schema-aware validation.
+        // Safety checks.
+        new GuardWalker('throw').walk(filter)
+        // Depth and pathPolicy via shared AST passes.
+        applyPolicyPasses(filter, filterOptions)
+        // Schema-aware validation.
         const tableInfo = TypeOrmTableInfo.createFrom(manager, subject)
         new SchemaWalker(tableInfo).walk(filter)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Deep-clones a filter object so that MongoQuery (which mutates its input via
+ * `collapseFields`) does not touch the caller's original value.
+ */
+function deepCloneFilter(val: any): any {
+    if (val === null || val === undefined) return val
+    if (val instanceof Date) return new Date(val)
+    if (Array.isArray(val)) return val.map(deepCloneFilter)
+    if (typeof val === 'object') {
+        const result: Record<string, any> = {}
+        for (const key of Object.keys(val)) {
+            result[key] = deepCloneFilter((val as any)[key])
+        }
+        return result
+    }
+    return val
+}
+
+/**
+ * Converts a {@link PassError} (or plain Error) thrown by a pass into a
+ * {@link FilterIssue} with the appropriate code and path.
+ */
+function passErrorToIssue(e: unknown, fallbackCode: string): FilterIssue {
+    if (e instanceof PassError) {
+        return { code: e.code, message: e.message, path: e.path }
+    }
+    /* c8 ignore next 2 */
+    return { code: fallbackCode, message: (e as Error).message }
+}
+
+/**
+ * Runs DepthLimiter and PathPolicyEnforcer (the same passes used by
+ * CaslBridge) on a deep clone of `filter`.  Throws on the first violation,
+ * exactly as `compileExternalFilterTree` does in CaslBridge.
+ */
+function applyPolicyPasses(filter: FilterObject, filterOptions?: FilterOptions): void {
+    if (filterOptions?.maxDepth === undefined && filterOptions?.pathPolicy === undefined) return
+
+    const clone = deepCloneFilter(filter)
+    const tree = new MongoQuery(clone).build('__root__')
+
+    if (filterOptions?.maxDepth !== undefined) {
+        new DepthLimiter(filterOptions.maxDepth, 'throw').apply(tree)
+    }
+    if (filterOptions?.pathPolicy !== undefined) {
+        new PathPolicyEnforcer(filterOptions.pathPolicy, 'throw').apply(tree)
     }
 }
 
@@ -214,22 +309,19 @@ type WalkerMode = 'throw' | 'collect'
 /**
  * Internal recursive walker that powers both {@link CastleGuard.validates}
  * and {@link CastleGuard.inspects}.
+ *
+ * Checks: unknown operators, operator shapes, prototype-pollution keys,
+ * unsafe path characters, and array-indexing notation.
+ * Depth and path-policy enforcement is handled separately via the shared
+ * AST passes (DepthLimiter / PathPolicyEnforcer).
  */
 class GuardWalker {
     readonly issues: FilterIssue[] = []
-    private readonly maxDepth?: number
-    private readonly pathPolicy?: PathPolicy
 
-    constructor(
-        private readonly mode: WalkerMode,
-        options?: FilterOptions,
-    ) {
-        this.maxDepth   = options?.maxDepth
-        this.pathPolicy = options?.pathPolicy
-    }
+    constructor(private readonly mode: WalkerMode) {}
 
     walk(filter: FilterObject): void {
-        this.processNode(filter, 0, [])
+        this.processNode(filter, [])
     }
 
     // ------------------------------------------------------------------
@@ -253,16 +345,15 @@ class GuardWalker {
      * Dispatch a filter node based on its runtime type.
      *
      * @param node       The current filter node.
-     * @param depth      Number of relation-scope hops above this node.
      * @param pathPrefix Accumulated field path segments from the root.
      */
-    private processNode(node: any, depth: number, pathPrefix: string[]): void {
+    private processNode(node: any, pathPrefix: string[]): void {
         if (node === null || node === undefined) return
         if (typeof node !== 'object') return
 
         if (Array.isArray(node)) {
             // Top-level array is treated as an implicit $and.
-            for (const item of node) this.processNode(item, depth, pathPrefix)
+            for (const item of node) this.processNode(item, pathPrefix)
             return
         }
 
@@ -270,9 +361,9 @@ class GuardWalker {
         if (keys.length === 0) return
 
         if (keys.every(k => k.startsWith('$'))) {
-            this.processOperators(node, depth, pathPrefix)
+            this.processOperators(node, pathPrefix)
         } else {
-            this.processFields(node, depth, pathPrefix)
+            this.processFields(node, pathPrefix)
         }
     }
 
@@ -280,11 +371,7 @@ class GuardWalker {
     // Fields object  { field: value, ... }
     // ------------------------------------------------------------------
 
-    private processFields(
-        obj: object,
-        depth: number,
-        pathPrefix: string[],
-    ): void {
+    private processFields(obj: object, pathPrefix: string[]): void {
         for (const key of Object.keys(obj)) {
             // Prototype-pollution check (highest priority).
             if (UNSAFE_KEYS.has(key)) {
@@ -300,7 +387,7 @@ class GuardWalker {
 
             if (key.includes('.')) {
                 // Dotted key: expand into nested structure and re-process.
-                this.processSegmentedKey(key, value, depth, pathPrefix)
+                this.processSegmentedKey(key, value, pathPrefix)
                 continue
             }
 
@@ -323,28 +410,18 @@ class GuardWalker {
                 continue
             }
 
-            this.processField(key, value, depth, pathPrefix)
+            this.processField(key, value, pathPrefix)
         }
     }
 
     /**
      * Handle a dotted key such as `"author.name"` or `"metadata.library.isbn"`.
      *
-     * All segments except the last are treated as join hops (depth is incremented
-     * for each one).  The final segment is passed to `processField` so that its
-     * value is handled correctly (primitive, array, operator condition, or join
-     * scope).
-     *
      * Every segment is validated against {@link SAFE_SEGMENT_RE} before
      * processing.  Malicious dot patterns (empty segments from `a..b`, `.a`,
      * `a.`) are rejected because the empty string does not match the regex.
      */
-    private processSegmentedKey(
-        key: string,
-        value: any,
-        depth: number,
-        pathPrefix: string[],
-    ): void {
+    private processSegmentedKey(key: string, value: any, pathPrefix: string[]): void {
         // Array-indexing check (before splitting).
         if (key.includes('[') || key.includes(']')) {
             this.addIssue({
@@ -377,30 +454,15 @@ class GuardWalker {
             }
         }
 
-        // Process every intermediate segment as a join-scope hop, then hand
-        // off the final segment to processField.  This avoids building a
+        // Build up the join prefix from all intermediate segments, then
+        // hand off the final segment to processField.  This avoids building a
         // synthetic nested object, which would misclassify $-prefixed final
         // segments (e.g. `$taxes`) as operator keys.
-        let currentDepth = depth
-        let joinPrefix   = [...pathPrefix]
-
+        let joinPrefix = [...pathPrefix]
         for (let i = 0; i < segments.length - 1; i++) {
-            const seg = segments[i]
-            if (this.maxDepth !== undefined && currentDepth >= this.maxDepth) {
-                this.addIssue({
-                    code: 'MAX_DEPTH_EXCEEDED',
-                    message: `Filter query exceeds maximum join depth of ${this.maxDepth}`,
-                    path: pathOf([...joinPrefix, seg]),
-                })
-                return
-            }
-            joinPrefix = [...joinPrefix, seg]
-            currentDepth++
+            joinPrefix = [...joinPrefix, segments[i]]
         }
-
-        // The final segment is a plain field — let processField decide whether
-        // it is a primitive leaf, a join scope, or an operator-condition object.
-        this.processField(segments[segments.length - 1], value, currentDepth, joinPrefix)
+        this.processField(segments[segments.length - 1], value, joinPrefix)
     }
 
     // ------------------------------------------------------------------
@@ -415,25 +477,18 @@ class GuardWalker {
      * - a join scope (nested fields object), or
      * - an operator-condition object (e.g. `{ $gt: 5 }`).
      */
-    private processField(
-        field: string,
-        value: any,
-        depth: number,
-        pathPrefix: string[],
-    ): void {
+    private processField(field: string, value: any, pathPrefix: string[]): void {
         const currentPath = [...pathPrefix, field]
 
         if (value === undefined) return
 
         if (value === null || typeof value !== 'object') {
-            // Primitive or null → implicit $eq / $is — check path policy.
-            this.checkPathPolicy(currentPath)
+            // Primitive or null → implicit $eq / $is.
             return
         }
 
         if (Array.isArray(value)) {
-            // Array → implicit $in — check path policy.
-            this.checkPathPolicy(currentPath)
+            // Array → implicit $in.
             return
         }
 
@@ -443,67 +498,18 @@ class GuardWalker {
 
         if (isQuery) {
             // Operator condition on this field (e.g. `{ id: { $gt: 5 } }`).
-            // Check path policy at this field, then recurse into the operators.
-            this.checkPathPolicy(currentPath)
-            this.processOperators(value, depth, currentPath)
+            this.processOperators(value, currentPath)
         } else {
-            // Join scope: the field's value is itself a fields object.
-            // Check depth limit before entering.
-            if (this.maxDepth !== undefined && depth >= this.maxDepth) {
-                this.addIssue({
-                    code: 'MAX_DEPTH_EXCEEDED',
-                    message: `Filter query exceeds maximum join depth of ${this.maxDepth}`,
-                    path: pathOf(currentPath),
-                })
-                return
-            }
-            // Recurse into the join scope with depth + 1.
-            this.processFields(value, depth + 1, currentPath)
+            // Join scope: recurse into the nested fields object.
+            this.processFields(value, currentPath)
         }
-    }
-
-    // ------------------------------------------------------------------
-    // Path policy
-    // ------------------------------------------------------------------
-
-    private checkPathPolicy(path: string[]): void {
-        if (!this.pathPolicy) return
-        const pathStr = path.join('.')
-        if (!this.isAllowedByPolicy(pathStr)) {
-            this.addIssue({
-                code: 'PATH_POLICY_VIOLATION',
-                message: `Filter path "${pathStr}" is not permitted by PathPolicy`,
-                path: pathStr,
-            })
-        }
-    }
-
-    private isAllowedByPolicy(path: string): boolean {
-        const defaultDecision = this.pathPolicy!.default ?? 'allow'
-        for (const rule of (this.pathPolicy!.rules ?? [])) {
-            if (this.matchesPattern(path, rule.path)) {
-                return rule.decision === 'allow'
-            }
-        }
-        return defaultDecision === 'allow'
-    }
-
-    private matchesPattern(path: string, pattern: string): boolean {
-        if (pattern.endsWith('.**')) {
-            return path.startsWith(pattern.slice(0, -3) + '.')
-        }
-        return path === pattern
     }
 
     // ------------------------------------------------------------------
     // Operators object  { $op: operand, ... }
     // ------------------------------------------------------------------
 
-    private processOperators(
-        obj: object,
-        depth: number,
-        pathPrefix: string[],
-    ): void {
+    private processOperators(obj: object, pathPrefix: string[]): void {
         for (const operator of Object.keys(obj)) {
             // Prototype-pollution check.
             // NOTE: UNSAFE_KEYS never start with '$', so this branch is only
@@ -531,7 +537,7 @@ class GuardWalker {
             }
 
             const operand = (obj as any)[operator]
-            this.validateOperand(operator, operand, depth, pathPrefix)
+            this.validateOperand(operator, operand, pathPrefix)
         }
     }
 
@@ -539,12 +545,7 @@ class GuardWalker {
      * Validates the operand shape for the given operator and recurses for
      * boolean operators (`$and`, `$or`, `$not`).
      */
-    private validateOperand(
-        operator: string,
-        operand: any,
-        depth: number,
-        pathPrefix: string[],
-    ): void {
+    private validateOperand(operator: string, operand: any, pathPrefix: string[]): void {
         const path = pathOf(pathPrefix)
 
         switch (operator) {
@@ -560,7 +561,7 @@ class GuardWalker {
                 return
             }
             for (const item of operand) {
-                this.processNode(item, depth, pathPrefix)
+                this.processNode(item, pathPrefix)
             }
             break
 
@@ -578,7 +579,7 @@ class GuardWalker {
                 })
                 return
             }
-            this.processNode(operand, depth, pathPrefix)
+            this.processNode(operand, pathPrefix)
             break
 
         case '$in':
@@ -639,11 +640,15 @@ type ScrubOutcome = any | typeof STRIP | typeof LITERAL_FALSE
 class ScrubWalker {
     private readonly maxDepth?: number
     private readonly pathPolicy?: PathPolicy
+    private readonly normalizedPolicy?: ReturnType<typeof normalizePolicy>
     private readonly onViolation: 'throw' | 'strip' | 'false'
 
     constructor(options?: FilterOptions) {
         this.maxDepth = options?.maxDepth
         this.pathPolicy = options?.pathPolicy
+        this.normalizedPolicy = options?.pathPolicy
+            ? normalizePolicy(options.pathPolicy)
+            : undefined
         this.onViolation = options?.onViolation ?? 'throw'
     }
 
@@ -958,31 +963,15 @@ class ScrubWalker {
 
     /**
      * Returns `STRIP` or `LITERAL_FALSE` when the path is denied, `null` when allowed.
+     * Delegates to the shared {@link isAllowedByPolicy} utility from lib/passes.
      */
     private checkPathPolicy(path: string[]): typeof STRIP | typeof LITERAL_FALSE | null {
-        if (!this.pathPolicy) return null
-        if (!this.isAllowedByPolicy(path.join('.'))) {
+        if (!this.normalizedPolicy) return null
+        if (!isAllowedByPolicy(path.join('.'), this.normalizedPolicy)) {
             const v = this.handleViolation()
             return v === LITERAL_FALSE ? LITERAL_FALSE : STRIP
         }
         return null
-    }
-
-    private isAllowedByPolicy(path: string): boolean {
-        const defaultDecision = this.pathPolicy!.default ?? 'allow'
-        for (const rule of (this.pathPolicy!.rules ?? [])) {
-            if (this.matchesPattern(path, rule.path)) {
-                return rule.decision === 'allow'
-            }
-        }
-        return defaultDecision === 'allow'
-    }
-
-    private matchesPattern(path: string, pattern: string): boolean {
-        if (pattern.endsWith('.**')) {
-            return path.startsWith(pattern.slice(0, -3) + '.')
-        }
-        return path === pattern
     }
 
     /**

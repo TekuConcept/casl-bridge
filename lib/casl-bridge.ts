@@ -16,9 +16,11 @@ import {
 import {
     DepthLimiter,
     PathPolicyEnforcer,
+    TreeMerger,
+} from './passes'
+import {
     RelationIdRewriter,
     RelationMetaProvider,
-    TreeMerger,
 } from './condition'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
 import { SimpleSerializer } from './serializer/simple-serializer'
@@ -195,7 +197,7 @@ export class CaslBridge {
                 options.filterOptions,
                 table,
             )
-            combined = TreeMerger.merge(caslTree, filterTree) as typeof caslTree
+            combined = TreeMerger.merge(caslTree, filterTree).tree as typeof caslTree
             filterTree.unlink()  // empty shell after merge — cleanup
         }
 
@@ -339,7 +341,7 @@ export class CaslBridge {
                 filterOptions.maxDepth,
                 filterOptions.onViolation ?? 'throw',
             )
-            tree = limiter.apply(tree)
+            tree = limiter.apply(tree).tree
         }
 
         if (filterOptions?.pathPolicy !== undefined) {
@@ -347,7 +349,7 @@ export class CaslBridge {
                 filterOptions.pathPolicy,
                 filterOptions.onViolation ?? 'throw',
             )
-            tree = enforcer.apply(tree)
+            tree = enforcer.apply(tree).tree
         }
 
         if (tableInfo) {

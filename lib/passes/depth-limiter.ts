@@ -1,6 +1,7 @@
-import { ConditionTree, ICondition, ScopeOp } from './types'
-import { ScopedCondition } from './scoped-condition'
-import { LiteralCondition } from './literal-condition'
+import { ConditionTree, ICondition, ScopeOp } from '../condition/types'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { LiteralCondition } from '../condition/literal-condition'
+import { PassResult, PassError } from './types'
 
 export type ViolationMode = 'throw' | 'false' | 'strip'
 
@@ -16,7 +17,7 @@ export type ViolationMode = 'throw' | 'false' | 'strip'
  *
  * When a join scope is encountered at `depth >= maxDepth`:
  *
- * - `"throw"` (default) – throws an Error immediately
+ * - `"throw"` (default) – throws a {@link PassError} immediately
  * - `"false"` – replaces that branch with `LiteralCondition(false)`,
  *               then simplifies the surrounding boolean context
  * - `"strip"` – removes that branch from its parent entirely, then
@@ -42,21 +43,25 @@ export class DepthLimiter {
      * Applies depth limiting to `tree` (which must be the root
      * ScopedCondition returned by `MongoQuery.build()`).
      *
-     * Returns the (possibly mutated) root.  The root node is always
-     * preserved so callers can still call `tree.alias` without error.
+     * Returns a {@link PassResult} whose `tree` field is the (possibly
+     * mutated) root.  Callers **must** use `result.tree` rather than
+     * assuming the input reference is still valid.
+     *
+     * The root node is always preserved so callers can still call
+     * `result.tree.alias` without error.
      */
-    apply(tree: ConditionTree): ConditionTree {
-        if (tree.type !== 'scoped') return tree
+    apply(tree: ConditionTree): PassResult<ConditionTree> {
+        if (tree.type !== 'scoped') return { tree, issues: [] }
 
         const root = tree as ScopedCondition
-        const result = this.limitNode(root, 0)
+        const result = this.limitNode(root, 0, [])
 
-        if (result === root) return root  // common path: in-place mutation
+        if (result === root) return { tree: root, issues: [] }
 
         if (result === null) {
             // Strip mode: everything stripped → empty root = no WHERE clause
             root.clear()
-            return root
+            return { tree: root, issues: [] }
         }
 
         // Root simplified to a LiteralCondition
@@ -67,7 +72,7 @@ export class DepthLimiter {
             root.push(literal)
         }
         // true → empty root = no WHERE clause (equivalent to no filter)
-        return root
+        return { tree: root, issues: [] }
     }
 
     // ------------------------------------------------------------------
@@ -86,6 +91,7 @@ export class DepthLimiter {
     private limitNode(
         node: ConditionTree,
         depth: number,
+        joinPath: string[],
     ): ConditionTree | null {
         // Non-scoped leaves are always passed through unchanged.
         if (node.type !== 'scoped') return node
@@ -94,10 +100,15 @@ export class DepthLimiter {
 
         // ── Depth violation check ──────────────────────────────────────
         if (scoped.join && depth >= this.maxDepth) {
+            const col  = (scoped as any)['_column'] as string | null
+            /* c8 ignore next */
+            const path = col ? [...joinPath, col].join('.') : joinPath.join('.') || undefined
             switch (this.onViolation) {
             case 'throw':
-                throw new Error(
-                    `Filter query exceeds maximum join depth of ${this.maxDepth}`
+                throw new PassError(
+                    `Filter query exceeds maximum join depth of ${this.maxDepth}`,
+                    'MAX_DEPTH_EXCEEDED',
+                    path,
                 )
             case 'false':
                 return new LiteralCondition(false)
@@ -107,11 +118,13 @@ export class DepthLimiter {
         }
 
         const nextDepth = scoped.join ? depth + 1 : depth
+        const col       = (scoped as any)['_column'] as string | null
+        const nextJoinPath = scoped.join && col ? [...joinPath, col] : joinPath
 
         // ── Recurse into children ──────────────────────────────────────
         const newConditions: ICondition[] = []
         for (const child of scoped.conditions) {
-            const result = this.limitNode(child as ConditionTree, nextDepth)
+            const result = this.limitNode(child as ConditionTree, nextDepth, nextJoinPath)
             if (result !== null) {
                 newConditions.push(result)
             }

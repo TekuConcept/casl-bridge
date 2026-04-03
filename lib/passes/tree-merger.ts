@@ -1,7 +1,8 @@
-import { ConditionTree, ICondition, ScopeOp } from './types'
-import { ScopedCondition } from './scoped-condition'
-import { LiteralCondition } from './literal-condition'
-import { PrimitiveCondition } from './primitive-condition'
+import { ConditionTree, ICondition, ScopeOp } from '../condition/types'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { LiteralCondition } from '../condition/literal-condition'
+import { PrimitiveCondition } from '../condition/primitive-condition'
+import { PassResult } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TreeMerger
@@ -54,11 +55,17 @@ export class TreeMerger {
      * `MongoQuery.build()`.  Their children are moved into a new merged root;
      * the original roots become empty shells.
      *
-     * Returns the merged root.  When either input tree is empty its children
-     * contribute nothing to the merge (neutral element).
+     * Returns a {@link PassResult} whose `tree` is the merged root.  Callers
+     * **must** use `result.tree` rather than assuming either input reference
+     * is still valid.
+     *
+     * When either input tree is empty its children contribute nothing to the
+     * merge (neutral element).
      */
-    static merge(left: ConditionTree, right: ConditionTree): ConditionTree {
-        if (left.type !== 'scoped' || right.type !== 'scoped') return left
+    static merge(left: ConditionTree, right: ConditionTree): PassResult<ConditionTree> {
+        if (left.type !== 'scoped' || right.type !== 'scoped') {
+            return { tree: left, issues: [] }
+        }
 
         const leftRoot  = left  as ScopedCondition
         const rightRoot = right as ScopedCondition
@@ -84,12 +91,12 @@ export class TreeMerger {
         TreeMerger.dedupe(merged)
         const result = TreeMerger.simplify(merged)
 
-        if (result === merged) return merged
+        if (result === merged) return { tree: merged, issues: [] }
 
         // Everything simplified away → empty root = no WHERE clause.
         merged.clear()
 
-        if (result === null) return merged
+        if (result === null) return { tree: merged, issues: [] }
 
         // Whole merged tree collapsed to a literal.
         const literal = result as LiteralCondition
@@ -98,7 +105,7 @@ export class TreeMerger {
             merged.push(literal)
         }
         // true → empty root = no WHERE clause (equivalent to no filter).
-        return merged
+        return { tree: merged, issues: [] }
     }
 
     /**
@@ -157,7 +164,6 @@ export class TreeMerger {
                    operandsEqual(pa.operand, pb.operand)
         }
 
-        // scoped
         const sa = a as ScopedCondition
         const sb = b as ScopedCondition
         if (sa.scope !== sb.scope)                         return false
@@ -217,7 +223,6 @@ export class TreeMerger {
             if (andRest.length === 0) return null
             return scoped
         }
-        /* c8 ignore start */
         //
         // The OR and NOT branches below are defensive; they are included for
         // completeness so that `simplify` is safe if ever called on a non-AND
@@ -225,6 +230,7 @@ export class TreeMerger {
         // creates the merged root with `scope = ScopeOp.AND`, so these
         // branches are unreachable through normal usage.
         //
+        /* c8 ignore start */
         case ScopeOp.OR: {
             // OR(…, true, …) = true
             if (literals.some(l => l.value))

@@ -1,28 +1,70 @@
-import { ConditionTree, ICondition, ScopeOp } from './types'
-import { ScopedCondition } from './scoped-condition'
-import { LiteralCondition } from './literal-condition'
+import { ConditionTree, ICondition, ScopeOp } from '../condition/types'
+import { ScopedCondition } from '../condition/scoped-condition'
+import { LiteralCondition } from '../condition/literal-condition'
 import { ViolationMode } from './depth-limiter'
+import { PassResult, PassError } from './types'
 import { PathPolicy } from '../types'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Normalised internal representation
+// Shared policy types and utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface NormalizedRule {
+/**
+ * A single path-policy rule resolved from {@link PathPolicy}.
+ * `path` is the dot-separated pattern (may end with `".**"` for descendant
+ * wildcard matching) and `decision` is the action to take when the rule matches.
+ */
+export interface NormalizedRule {
     path: string
     decision: 'allow' | 'deny'
 }
 
-interface NormalizedPolicy {
+/**
+ * A fully-resolved internal representation of a {@link PathPolicy} where all
+ * optional fields are guaranteed to be present.
+ */
+export interface NormalizedPolicy {
     default: 'allow' | 'deny'
     rules: NormalizedRule[]
 }
 
-function normalizePolicy(policy: PathPolicy): NormalizedPolicy {
+/**
+ * Normalises a raw {@link PathPolicy} into a fully-resolved internal form
+ * with all optional fields filled in.
+ */
+export function normalizePolicy(policy: PathPolicy): NormalizedPolicy {
     return {
         default: policy.default ?? 'allow',
         rules: policy.rules ?? [],
     }
+}
+
+/**
+ * Returns `true` if `path` is permitted by `policy`.
+ * Rules are evaluated in order; the first matching rule wins.
+ */
+export function isAllowedByPolicy(path: string, policy: NormalizedPolicy): boolean {
+    for (const rule of policy.rules) {
+        if (matchesPattern(path, rule.path)) {
+            return rule.decision === 'allow'
+        }
+    }
+    return policy.default === 'allow'
+}
+
+/**
+ * Returns `true` if `path` satisfies `pattern`.
+ *
+ * - Exact: `pattern === path`
+ * - Descendant wildcard: pattern ends with `".**"` and path starts with
+ *   `pattern_prefix + "."`.
+ */
+export function matchesPattern(path: string, pattern: string): boolean {
+    if (pattern.endsWith('.**')) {
+        const prefix = pattern.slice(0, -3)
+        return path.startsWith(prefix + '.')
+    }
+    return path === pattern
 }
 
 /** Returns the raw `_column` of a condition node without traversing the parent chain. */
@@ -62,7 +104,7 @@ function rawColumn(node: ICondition): string | null {
  *    descendant wildcard rule, e.g. `{ path: "author.**", decision: "deny" }`.
  *
  * When a path is denied:
- *  - `"throw"` (default) – throws an `Error` immediately.
+ *  - `"throw"` (default) – throws a {@link PassError} immediately.
  *  - `"false"` – replaces the violating branch with `LiteralCondition(false)`,
  *                then simplifies the surrounding boolean context.
  *  - `"strip"` – removes the violating branch entirely.
@@ -91,21 +133,22 @@ export class PathPolicyEnforcer {
      * Applies path-policy enforcement to `tree` (which must be the root
      * ScopedCondition returned by `MongoQuery.build()`).
      *
-     * Returns the (possibly mutated) root.  The root node is always
-     * preserved so callers can still call `tree.alias` without error.
+     * Returns a {@link PassResult} whose `tree` field is the (possibly
+     * mutated) root.  Callers **must** use `result.tree` rather than
+     * assuming the input reference is still valid.
      */
-    apply(tree: ConditionTree): ConditionTree {
-        if (tree.type !== 'scoped') return tree
+    apply(tree: ConditionTree): PassResult<ConditionTree> {
+        if (tree.type !== 'scoped') return { tree, issues: [] }
 
         const root = tree as ScopedCondition
         const result = this.enforceNode(root, [])
 
-        if (result === root) return root  // common path: in-place mutation
+        if (result === root) return { tree: root, issues: [] }
 
         if (result === null) {
             // Strip / collapse: everything removed → empty root = no WHERE clause
             root.clear()
-            return root
+            return { tree: root, issues: [] }
         }
 
         // Root simplified to a LiteralCondition
@@ -116,7 +159,7 @@ export class PathPolicyEnforcer {
             root.push(literal)
         }
         // true → empty root = no WHERE clause (equivalent to no filter)
-        return root
+        return { tree: root, issues: [] }
     }
 
     // ------------------------------------------------------------------
@@ -141,13 +184,13 @@ export class PathPolicyEnforcer {
 
         // ── Primitive leaf ────────────────────────────────────────────────
         if (node.type === 'primitive') {
-            const col = rawColumn(node)
             // null column = synthetic empty-result node; skip policy check
+            const col = rawColumn(node)
             if (col !== null) {
                 const path = joinPath.length > 0
                     ? joinPath.join('.') + '.' + col
                     : col
-                if (!this.isAllowed(path)) {
+                if (!isAllowedByPolicy(path, this.policy)) {
                     return this.handleViolation(path)
                 }
             }
@@ -188,41 +231,15 @@ export class PathPolicyEnforcer {
     }
 
     /**
-     * Returns `true` if `path` is permitted by the policy.
-     * Rules are evaluated in order; the first matching rule wins.
-     */
-    private isAllowed(path: string): boolean {
-        for (const rule of this.policy.rules) {
-            if (this.matchesPattern(path, rule.path)) {
-                return rule.decision === 'allow'
-            }
-        }
-        return this.policy.default === 'allow'
-    }
-
-    /**
-     * Returns `true` if `path` satisfies `pattern`.
-     *
-     * - Exact: `pattern === path`
-     * - Descendant wildcard: `pattern` ends with `".**"` and `path`
-     *   starts with `pattern_prefix + "."`.
-     */
-    private matchesPattern(path: string, pattern: string): boolean {
-        if (pattern.endsWith('.**')) {
-            const prefix = pattern.slice(0, -3)
-            return path.startsWith(prefix + '.')
-        }
-        return path === pattern
-    }
-
-    /**
      * Produces the appropriate replacement node for a policy violation.
      */
     private handleViolation(path: string): LiteralCondition | null {
         switch (this.onViolation) {
         case 'throw':
-            throw new Error(
-                `Filter path "${path}" is not permitted by PathPolicy`
+            throw new PassError(
+                `Filter path "${path}" is not permitted by PathPolicy`,
+                'PATH_POLICY_VIOLATION',
+                path,
             )
         case 'false':
             return new LiteralCondition(false)
