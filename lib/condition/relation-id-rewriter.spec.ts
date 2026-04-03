@@ -382,7 +382,7 @@ describe('RelationIdRewriter', () => {
                 const p = prim('id', 1)
                 const rw = new RelationIdRewriter(provider({}))
                 const result = rw.apply(p)
-                expect(result).to.equal(p)
+                expect(result.tree).to.equal(p)
             })
 
             it('should handle multiple join scopes at the same level', () => {
