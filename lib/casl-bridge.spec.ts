@@ -933,7 +933,7 @@ describe('CaslBridge', () => {
                         SELECT
                             "__table__"."id"       AS "__table___id",
                             "__table__"."title"    AS "__table___title",
-                        "__table__"."metadata" AS "__table___metadata",
+                            "__table__"."metadata" AS "__table___metadata",
                             "__table__"."authorId" AS "__table___authorId"
                         FROM "book" "__table__"
                         WHERE ("__table__"."id" > 1 AND
@@ -975,7 +975,7 @@ describe('CaslBridge', () => {
                         SELECT
                             "__table__"."id"       AS "__table___id",
                             "__table__"."title"    AS "__table___title",
-                        "__table__"."metadata" AS "__table___metadata",
+                            "__table__"."metadata" AS "__table___metadata",
                             "__table__"."authorId" AS "__table___authorId"
                         FROM "book" "__table__"
                     `)
@@ -1505,7 +1505,7 @@ describe('CaslBridge', () => {
                             SELECT
                                 "__table__"."id"       AS "__table___id",
                                 "__table__"."title"    AS "__table___title",
-                        "__table__"."metadata" AS "__table___metadata",
+                                "__table__"."metadata" AS "__table___metadata",
                                 "__table__"."authorId" AS "__table___authorId"
                             FROM "book" "__table__"
                         `)
