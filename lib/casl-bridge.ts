@@ -7,6 +7,7 @@ import {
     createMongoAbility
 } from '@casl/ability'
 import { CaslGate, FilterOptions, QueryOptions } from './types'
+import { CastleGuard } from './castle-guard'
 import { SelectPattern } from './serializer/types'
 import {
     MongoQuery,
@@ -26,6 +27,9 @@ import { SimpleSerializer } from './serializer/simple-serializer'
 export type FilterObject = MongoQueryObjects
 
 export class CaslBridge {
+    /** Pre-query filter validator. See {@link CastleGuard}. */
+    static Guard = CastleGuard
+
     casl: CaslGate
 
     constructor(
