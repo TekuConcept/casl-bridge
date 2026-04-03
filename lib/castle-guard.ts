@@ -644,7 +644,7 @@ class ScrubWalker {
     private readonly onViolation: 'throw' | 'strip' | 'false'
 
     constructor(options?: FilterOptions) {
-        this.maxDepth   = options?.maxDepth
+        this.maxDepth = options?.maxDepth
         this.pathPolicy = options?.pathPolicy
         this.onViolation = options?.onViolation ?? 'throw'
     }
@@ -770,7 +770,7 @@ class ScrubWalker {
 
         // Depth check for all intermediate segments.
         let currentDepth = depth
-        let joinPrefix   = [...pathPrefix]
+        let joinPrefix = [...pathPrefix]
         for (let i = 0; i < segments.length - 1; i++) {
             if (this.maxDepth !== undefined && currentDepth >= this.maxDepth) {
                 return this.handleViolation()
