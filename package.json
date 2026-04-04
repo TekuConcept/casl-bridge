@@ -2,8 +2,16 @@
   "name": "casl-bridge",
   "version": "1.4.2",
   "description": "A query bridge between CASL rules and database ORMs",
-  "main": "dist/lib/index.js",
-  "typings": "./index.d.ts",
+  "main": "./dist/cjs/lib/index.js",
+  "module": "./dist/esm/lib/index.js",
+  "types": "./dist/types/lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/lib/index.d.ts",
+      "require": "./dist/cjs/lib/index.js",
+      "import": "./dist/esm/lib/index.js"
+    }
+  },
   "files": [
     "dist/**",
     "index.d.ts",
@@ -15,7 +23,10 @@
     "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts 'lib/**/*.spec.ts'",
     "test:": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts",
     "test:cov": "c8 npm run test",
-    "build": "tsc",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:types": "tsc -p tsconfig.types.json",
+    "build": "npm run build:cjs && npm run build:esm && npm run build:types && node scripts/postbuild.cjs",
     "lines:dev": "cloc lib",
     "lines": "cloc lib --not-match-f='\\.(spec|test)\\.ts$' --ignore-case-ext --sum-one"
   },

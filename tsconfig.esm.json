@@ -1,0 +1,17 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "module": "ES2022",
+        "rootDir": ".",
+        "outDir": "./dist/esm",
+        "declaration": false,
+        "resolveJsonModule": true
+    },
+    "exclude": [
+        "node_modules",
+        "./dist/**/*",
+        "./test/**/*",
+        "lib/**/*.spec.ts",
+        "lib/**/*.test.ts"
+    ]
+}
