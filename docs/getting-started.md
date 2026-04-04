@@ -19,7 +19,7 @@ npm install @casl/ability typeorm casl-bridge
 ## Mental model
 
 ```
-CASL rules  ──┐
+CASL rules   ──┐
                ├──▶  CaslBridge  ──▶  TypeORM SelectQueryBuilder
 extra filter ──┘
 ```
