@@ -25,6 +25,7 @@ export interface MongoPrimitiveConditions {
     '$is'?:         null | true | false
     '$isNot'?:      null | true | false
     '$in'?:         MongoPrimitive[]
+    '$nin'?:        MongoPrimitive[]
     '$notIn'?:      MongoPrimitive[]
     '$like'?:       string
     '$notLike'?:    string
