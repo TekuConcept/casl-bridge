@@ -1,0 +1,12 @@
+# test directories
+test/**
+tests/**
+__tests__/**
+
+# unit test files anywhere
+**/*.spec.*
+**/*.test.*
+
+# coverage artifacts
+coverage/**
+.nyc_output/**
