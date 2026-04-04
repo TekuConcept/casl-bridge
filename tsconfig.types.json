@@ -1,0 +1,17 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "rootDir": ".",
+        "outDir": "./dist/types",
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "resolveJsonModule": true
+    },
+    "exclude": [
+        "node_modules",
+        "./dist/**/*",
+        "./test/**/*",
+        "lib/**/*.spec.ts",
+        "lib/**/*.test.ts"
+    ]
+}
