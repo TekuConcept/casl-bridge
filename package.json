@@ -4,6 +4,13 @@
   "description": "A query bridge between CASL rules and database ORMs",
   "main": "dist/lib/index.js",
   "typings": "./index.d.ts",
+  "files": [
+    "dist/**",
+    "index.d.ts",
+    "README.md",
+    "LICENSE*",
+    "CHANGELOG*"
+  ],
   "scripts": {
     "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts 'lib/**/*.spec.ts'",
     "test:": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts",
