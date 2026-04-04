@@ -13,7 +13,10 @@ export interface ITableInfo {
 
     classType(): string
 
-    createQueryBuilder(alias: string): IQueryBuilder
+    /** Returns the database dialect string, eg. "mysql" or "sqlite" */
+    getDialectType(): string
+
+    createQueryBuilder(alias: string, direction?: 'left' | 'inner'): IQueryBuilder
 }
 
 export interface IColumnInfo {
@@ -25,6 +28,8 @@ export interface IColumnInfo {
 
     isJoinable(): boolean
     isIdentifier(name: string): boolean
+    /** Returns `true` when the column's type is `'json'` or `'simple-json'`. */
+    isJsonColumn(): boolean
 }
 
 export interface IBrackets {

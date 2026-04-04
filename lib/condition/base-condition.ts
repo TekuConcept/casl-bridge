@@ -9,7 +9,7 @@ export interface IBaseConditionData {
 }
 
 export abstract class BaseCondition implements ICondition {
-    abstract readonly type: 'scoped' | 'primitive'
+    abstract readonly type: 'scoped' | 'primitive' | 'literal'
 
     protected _parent: IScopedCondition = null
     protected readonly _alias: string | null = null

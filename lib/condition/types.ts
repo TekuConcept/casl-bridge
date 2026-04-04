@@ -31,7 +31,7 @@ export enum PrimOp {
 }
 
 export interface ICondition {
-    readonly type: 'scoped' | 'primitive'
+    readonly type: 'scoped' | 'primitive' | 'literal'
     readonly column: string | null
     readonly alias: string | null
     parent: IScopedCondition | null
@@ -56,6 +56,11 @@ export interface IScopedCondition extends ICondition {
     join: boolean
     scope: ScopeOp
     conditions: ICondition[]
+    /**
+     * When `true`, this scope is a JSON path traversal (set by
+     * `JsonPathAnnotator`).  The serializer skips the SQL JOIN.
+     */
+    isJsonTraversal?: boolean
 }
 
 /**
@@ -66,6 +71,15 @@ export interface IPrimitiveCondition extends ICondition {
     readonly type: 'primitive'
     operator: PrimOp
     operand: any // parameterized value
+}
+
+/**
+ * Represents a constant boolean value (true or false) introduced
+ * during depth-limiting simplification.
+ */
+export interface ILiteralCondition extends ICondition {
+    readonly type: 'literal'
+    readonly value: boolean
 }
 
 export interface IQuery {

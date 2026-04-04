@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "module": "commonjs",
+        "moduleResolution": "node10",
         "declaration": true,
         "removeComments": true,
         "emitDecoratorMetadata": true,
@@ -16,15 +17,16 @@
         "forceConsistentCasingInFileNames": false,
         "noFallthroughCasesInSwitch": false,
 
-        "baseUrl": ".",
-        "paths": { "@/*": ["./lib/*"] }
+        "baseUrl": "..",
+        "paths": { "@/*": ["./lib/*"] },
+        "ignoreDeprecations": "6.0"
     },
     "include": [
-        "lib/**/*.ts"
+        "../lib/**/*.ts"
     ],
     "exclude": [
-        "node_modules",
-        "./dist/**/*",
-        "./test/**/*"
+        "../node_modules",
+        "../dist/**/*",
+        "../test/**/*",
     ]
 }

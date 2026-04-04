@@ -1,6 +1,7 @@
 {
     "exclude": [
         "**/*.spec.ts",
+        "**/*.test.ts",
         "**/*.schema.ts",
         "lib/test-db.ts"
     ]

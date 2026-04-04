@@ -1,0 +1,15 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "rootDir": "../lib",
+        "outDir": "../dist",
+        "resolveJsonModule": true
+    },
+    "exclude": [
+        "../node_modules",
+        "../dist/**/*",
+        "../test/**/*",
+        "../lib/**/*.spec.ts",
+        "../lib/**/*.test.ts"
+    ]
+}

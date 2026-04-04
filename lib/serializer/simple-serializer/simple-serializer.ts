@@ -1,26 +1,21 @@
 
-import { IBrackets, IQueryBuilder, ITableInfo } from '../schema'
-import { ISerializer, SelectPattern } from './types'
+import { IQueryBuilder, ITableInfo } from '../../schema'
 import {
     ConditionTree,
     ICondition,
+    LiteralCondition,
     PrimOp,
     PrimitiveCondition,
     ScopeOp,
     ScopedCondition
-} from '../condition'
-import { SimpleSelector } from './simple-selector'
-import { SimpleUtils } from './simple-utils'
-
-interface ScopeInfo {
-    shared: { counter: number }
-    table: ITableInfo
-    builder: IQueryBuilder
-    where: (
-        condition: string | IBrackets,
-        parameters?: object
-    ) => IQueryBuilder
-}
+} from '../../condition'
+import { JsonPathAnnotator } from '../../passes'
+import { SimpleSelector } from '../simple-selector'
+import { SimpleUtils } from '../simple-utils'
+import { DbDialect, renderJsonExtract } from '../sql-dialect-adapter'
+import { ISerializer, SelectPattern } from '../types'
+import { ScopeInfo } from './types'
+import { Helpers } from './utils'
 
 export class SimpleSerializer implements ISerializer {
     selector: SimpleSelector
@@ -29,8 +24,8 @@ export class SimpleSerializer implements ISerializer {
         this.selector = new SimpleSelector(table)
     }
 
-    serialize(query: ConditionTree): IQueryBuilder {
-        const builder = this.table.createQueryBuilder(query.alias)
+    serialize(query: ConditionTree, direction?: 'left' | 'inner'): IQueryBuilder {
+        const builder = this.table.createQueryBuilder(query.alias, direction)
         return this.serializeWith(builder, query)
     }
 
@@ -38,6 +33,12 @@ export class SimpleSerializer implements ISerializer {
         builder: IQueryBuilder,
         query: ConditionTree,
     ): IQueryBuilder {
+        // Annotate JSON paths before serializing so that PrimitiveConditions
+        // inside JSON column scopes carry their jsonColumn/jsonPath/jsonTableAlias.
+        // The pass mutates in-place; use result.tree to stay compatible with
+        // a future immutable implementation.
+        query = new JsonPathAnnotator(this.table).apply(query).tree
+
         const rootScope: ScopeInfo = {
             shared: { counter: builder.nextParamId() },
             table: this.table,
@@ -60,7 +61,12 @@ export class SimpleSerializer implements ISerializer {
         scopeInfo: ScopeInfo,
         condition: ConditionTree
     ) {
-        if (condition.type === 'scoped')
+        if (condition.type === 'literal')
+            this.serializeLiteralCondition(
+                scopeInfo,
+                condition as LiteralCondition
+            )
+        else if (condition.type === 'scoped')
             this.serializeScopedCondition(
                 scopeInfo,
                 condition as ScopedCondition
@@ -69,6 +75,15 @@ export class SimpleSerializer implements ISerializer {
             scopeInfo,
             condition as PrimitiveCondition
         )
+    }
+
+    serializeLiteralCondition(
+        scopeInfo: ScopeInfo,
+        condition: LiteralCondition
+    ) {
+        // Use DB-agnostic SQL so the literals work across
+        // MySQL, SQLite, and Postgres.
+        scopeInfo.where(condition.value ? '(1=1)' : '(1=0)')
     }
 
     serializeScopedCondition(
@@ -80,39 +95,6 @@ export class SimpleSerializer implements ISerializer {
         else this.serializeScopedBoolean(scopeInfo, condition)
     }
 
-    getNextTable(
-        scopeInfo: ScopeInfo,
-        condition: ScopedCondition
-    ) {
-        if (!condition.join) return scopeInfo.table
-
-        const column = scopeInfo.table.getColumn(condition.column)
-        if (!column) throw new Error(
-            `Column '${condition.column}' not found in ${scopeInfo.table.classType()}`
-        )
-        if (!column.isJoinable())
-            throw new Error(`Column '${condition.column}' is not joinable`)
-
-        // we need to join the table
-        const parent = condition.parent
-        if (!parent) throw new Error('Parent condition not found')
-
-        const alias = condition.alias
-        const parentAlias = parent.alias
-
-        const quotedParentAlias =
-            SimpleUtils.getQuotedAlias(scopeInfo.table, parentAlias)
-        const quotedAlias =
-            SimpleUtils.getQuotedAlias(scopeInfo.table, alias)
-
-        const columnName = column.getName()
-            column.getQuotedName()
-        const path = `${quotedParentAlias}.${columnName}`
-
-        scopeInfo.builder.join(path, quotedAlias)
-        return column.getRelation()
-    }
-
     serializeScopedNot(
         scopeInfo: ScopeInfo,
         condition: ScopedCondition
@@ -121,7 +103,7 @@ export class SimpleSerializer implements ISerializer {
             nextBuilder => {
                 const nextScope: ScopeInfo = {
                     shared: scopeInfo.shared,
-                    table: this.getNextTable(scopeInfo, condition),
+                    table: Helpers.getNextTable(scopeInfo, condition),
                     builder: nextBuilder,
                     where: nextBuilder.andWhere.bind(nextBuilder)
                 }
@@ -145,7 +127,7 @@ export class SimpleSerializer implements ISerializer {
                     : nextBuilder.orWhere.bind(nextBuilder)
                 const nextScope: ScopeInfo = {
                     shared: scopeInfo.shared,
-                    table: this.getNextTable(scopeInfo, condition),
+                    table: Helpers.getNextTable(scopeInfo, condition),
                     builder: nextBuilder,
                     where
                 }
@@ -168,20 +150,44 @@ export class SimpleSerializer implements ISerializer {
         }
 
         const { where } = scopeInfo
-        const { alias, column, operator, operand } = condition
+        const { operator, operand } = condition
+        const param = `param_${scopeInfo.shared.counter++}`
 
-        const columnInfo = scopeInfo.table.getColumn(column)
-        if (!columnInfo) throw new Error(
-            `Column '${column}' not found in table '${scopeInfo.table.classType()}'`
-        )
+        // Build the SQL left-operand: either a JSON extraction expression or
+        // a plain column reference.
+        let path: string
 
-        const quotedAlias  = SimpleUtils.getQuotedAlias(
-            scopeInfo.table,
-            alias
-        )
-        const quotedColumn = columnInfo.getQuotedName()
-        const path         = `${quotedAlias}.${quotedColumn}`
-        const param        = `param_${scopeInfo.shared.counter++}`
+        if (condition.jsonColumn != null) {
+            // JSON path condition — emit dialect-specific extraction expression.
+            const { jsonColumn, jsonPath, jsonTableAlias } = condition
+            const jsonColInfo = scopeInfo.table.getColumn(jsonColumn)
+            if (!jsonColInfo) throw new Error(
+                `Column '${jsonColumn}' not found in table '${scopeInfo.table.classType()}'`
+            )
+            const quotedAlias = SimpleUtils.getQuotedAlias(
+                scopeInfo.table, jsonTableAlias ?? condition.alias
+            )
+            const quotedColumn = jsonColInfo.getQuotedName()
+            const columnSql = `${quotedAlias}.${quotedColumn}`
+            path = renderJsonExtract(
+                this.table.getDialectType() as DbDialect,
+                columnSql,
+                jsonPath,
+            )
+        } else {
+            // Normal column reference.
+            const { alias, column } = condition
+            const columnInfo = scopeInfo.table.getColumn(column)
+            if (!columnInfo) throw new Error(
+                `Column '${column}' not found in table '${scopeInfo.table.classType()}'`
+            )
+            const quotedAlias  = SimpleUtils.getQuotedAlias(
+                scopeInfo.table,
+                alias
+            )
+            const quotedColumn = columnInfo.getQuotedName()
+            path               = `${quotedAlias}.${quotedColumn}`
+        }
 
         switch (operator) {
         case PrimOp.EQUAL:            where(`${path}  = :${param}`, { [param]: operand }); break

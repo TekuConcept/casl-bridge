@@ -1,20 +1,26 @@
 import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm'
-import { Rule } from '@casl/ability/dist/types/Rule'
+import { Rule } from '@casl/ability'
 import {
     AbilityBuilder,
     AnyAbility,
     SubjectType,
     createMongoAbility
 } from '@casl/ability'
-import { CaslGate, QueryOptions } from './types'
+import { CaslGate, FilterOptions, QueryOptions } from './types'
 import { SelectPattern } from './serializer/types'
 import {
     MongoQuery,
     MongoQueryObject,
     MongoQueryObjects,
 } from './condition'
+import {
+    TreeMerger,
+    SchemaAwarePassContext,
+    runPasses,
+    schemaAwareExternalPasses,
+} from './passes'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
-import { SimpleSerializer } from './serializer/simple-serializer'
+import { SimpleSerializer } from './serializer'
 
 export type FilterObject = MongoQueryObjects
 
@@ -26,7 +32,7 @@ export class CaslBridge {
         /** The (TypeORM) ORM source */
         public readonly manager: DataSource | EntityManager,
         /** (Optional) pre-built casl ability */
-        casl?: CaslGate,
+        casl?: CaslGate | null,
         /**
          * @deprecated
          * Whether to escape quote chars and encode aliases.
@@ -178,18 +184,26 @@ export class CaslBridge {
         )
 
         const mongoQuery = new MongoQuery(caslQuery)
-        const tree = mongoQuery.build(options.table)
-        const query = serializer.serialize(tree)
+        const caslTree = mongoQuery.build(options.table)
 
+        let combined = caslTree
         if (options.filters) {
-            const filterQuery = new MongoQuery(options.filters)
-            const filterTree = filterQuery.build(options.table)
-            serializer.serializeWith(query, filterTree)
-            filterTree.unlink()
+            const filterTree = this.compileExternalFilterTree(
+                options.filters,
+                options.table,
+                options.filterOptions,
+                table,
+            )
+            combined = TreeMerger.merge(caslTree, filterTree).tree as typeof caslTree
+            filterTree.unlink()  // empty shell after merge — cleanup
         }
 
-        serializer.select(query, tree, options.select)
-        tree.unlink()
+        const query = serializer.serialize(
+            combined, options.filterOptions?.joinType ?? 'left')
+
+        serializer.select(query, combined, options.select)
+        combined.unlink()
+        if (combined !== caslTree) caslTree.unlink()
         return query.data
     }
 
@@ -212,18 +226,24 @@ export class CaslBridge {
      */
     createFilterFor(
         subject: SubjectType,
-        filters: FilterObject,
+        filters: FilterObject | null,
         selectPatten: SelectPattern = '*',
-        alias = '__table__'
+        alias = '__table__',
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         const table = TypeOrmTableInfo.createFrom(
             this.manager, subject)
         const serializer = new SimpleSerializer(table)
 
-        const filterQuery = new MongoQuery(filters ?? {})
-        const filterTree = filterQuery.build(alias)
+        const filterTree = this.compileExternalFilterTree(
+            filters ?? {},
+            alias,
+            filterOptions,
+            table,
+        )
 
-        const query = serializer.serialize(filterTree)
+        const query = serializer.serialize(
+            filterTree, filterOptions?.joinType ?? 'left')
         serializer.select(query, filterTree, selectPatten)
         filterTree.unlink()
 
@@ -255,7 +275,8 @@ export class CaslBridge {
     applyFilterTo(
         query: SelectQueryBuilder<any>,
         aliasName: string,
-        filters: FilterObject,
+        filters: FilterObject | null,
+        filterOptions?: FilterOptions | null,
     ): SelectQueryBuilder<any> {
         if (!filters) return query
 
@@ -264,10 +285,15 @@ export class CaslBridge {
         const table = TypeOrmTableInfo.createFrom(
             this.manager, alias.target)
         const serializer = new SimpleSerializer(table)
-        const filterQuery = new MongoQuery(filters)
-        const filterTree = filterQuery.build(aliasName)
+        const filterTree = this.compileExternalFilterTree(
+            filters,
+            aliasName,
+            filterOptions,
+            table,
+        )
 
-        const join = TypeOrmTableInfo.createJoinFunction(query)
+        const join = TypeOrmTableInfo.createJoinFunction(
+            query, filterOptions?.joinType ?? 'left')
         const queryBuilder = new TypeOrmQueryBuilder(
             query,
             join,
@@ -279,6 +305,44 @@ export class CaslBridge {
         filterTree.unlink()
 
         return query
+    }
+
+    /**
+     * Builds a ConditionTree from an external filter object and applies the
+     * schema-aware external-filter pass pipeline (depth limiting, path-policy
+     * enforcement, and relation-ID rewriting).
+     *
+     * This is the single internal entry point for constructing external filter
+     * trees.  CASL ability trees bypass this method entirely and are therefore
+     * unaffected by `maxDepth`, path-policy, or the relation-ID rewrite
+     * optimisation.
+     *
+     * @param filters       The raw Mongo-style filter object.
+     * @param alias         The table alias to use in the tree.
+     * @param filterOptions Options controlling depth limiting, path policy,
+     *                      and violation behaviour.
+     * @param tableInfo     TypeORM table info for the root entity (always
+     *                      provided by CaslBridge callers).
+     */
+    private compileExternalFilterTree(
+        filters: MongoQueryObjects,
+        alias: string,
+        filterOptions: FilterOptions | null | undefined,
+        tableInfo: TypeOrmTableInfo,
+    ) {
+        const filterQuery = new MongoQuery(filters)
+        let tree = filterQuery.build(alias)
+        const onViolation = filterOptions?.onViolation ?? 'throw'
+
+        const ctx: SchemaAwarePassContext = { alias, filterOptions, tableInfo }
+        const result = runPasses(tree, ctx, schemaAwareExternalPasses)
+
+        tree = result.tree
+        if (result.issues.length > 0 && onViolation === 'throw') {
+            throw new Error(result.issues[0].message)
+        }
+
+        return tree
     }
 
     /**
