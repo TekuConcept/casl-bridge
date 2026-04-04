@@ -5,6 +5,7 @@
 
 A query bridge between CASL rules and TypeORM
 
+Supports both **CommonJS** (`require`) and **ESM** (`import`).
 
 ## Installation
 
@@ -160,3 +161,9 @@ async function connect() {
      */
 }
 ```
+
+## More docs
+
+- [Getting Started](docs/getting-started.md) — prerequisites, minimal setup, common patterns, and troubleshooting
+- [CaslBridge API](docs/casl-bridge.md) — full API reference with TypeScript signatures and examples
+- [CastleGuard API](docs/castle-guard.md) — filter validation and sanitization reference

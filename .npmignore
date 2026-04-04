@@ -7,6 +7,9 @@ __tests__/**
 **/*.spec.*
 **/*.test.*
 
+# documentation
+docs/**
+
 # coverage artifacts
 coverage/**
 .nyc_output/**
