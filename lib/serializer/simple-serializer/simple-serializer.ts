@@ -1,6 +1,5 @@
 
-import { IBrackets, IQueryBuilder, ITableInfo } from '../schema'
-import { ISerializer, SelectPattern } from './types'
+import { IQueryBuilder, ITableInfo } from '../../schema'
 import {
     ConditionTree,
     ICondition,
@@ -9,21 +8,14 @@ import {
     PrimitiveCondition,
     ScopeOp,
     ScopedCondition
-} from '../condition'
-import { JsonPathAnnotator } from '../passes'
-import { SimpleSelector } from './simple-selector'
-import { SimpleUtils } from './simple-utils'
-import { DbDialect, renderJsonExtract } from './sql-dialect-adapter'
-
-interface ScopeInfo {
-    shared: { counter: number }
-    table: ITableInfo
-    builder: IQueryBuilder
-    where: (
-        condition: string | IBrackets,
-        parameters?: object
-    ) => IQueryBuilder
-}
+} from '../../condition'
+import { JsonPathAnnotator } from '../../passes'
+import { SimpleSelector } from '../simple-selector'
+import { SimpleUtils } from '../simple-utils'
+import { DbDialect, renderJsonExtract } from '../sql-dialect-adapter'
+import { ISerializer, SelectPattern } from '../types'
+import { ScopeInfo } from './types'
+import { Helpers } from './utils'
 
 export class SimpleSerializer implements ISerializer {
     selector: SimpleSelector
@@ -103,42 +95,6 @@ export class SimpleSerializer implements ISerializer {
         else this.serializeScopedBoolean(scopeInfo, condition)
     }
 
-    getNextTable(
-        scopeInfo: ScopeInfo,
-        condition: ScopedCondition
-    ) {
-        if (!condition.join) return scopeInfo.table
-
-        // JSON traversal scopes are annotated by JsonPathAnnotator; no DB join.
-        if (condition.isJsonTraversal) return scopeInfo.table
-
-        const column = scopeInfo.table.getColumn(condition.column)
-        if (!column) throw new Error(
-            `Column '${condition.column}' not found in ${scopeInfo.table.classType()}`
-        )
-        if (!column.isJoinable())
-            throw new Error(`Column '${condition.column}' is not joinable`)
-
-        // we need to join the table
-        const parent = condition.parent
-        if (!parent) throw new Error('Parent condition not found')
-
-        const alias = condition.alias
-        const parentAlias = parent.alias
-
-        const quotedParentAlias =
-            SimpleUtils.getQuotedAlias(scopeInfo.table, parentAlias)
-        const quotedAlias =
-            SimpleUtils.getQuotedAlias(scopeInfo.table, alias)
-
-        const columnName = column.getName()
-            column.getQuotedName()
-        const path = `${quotedParentAlias}.${columnName}`
-
-        scopeInfo.builder.join(path, quotedAlias)
-        return column.getRelation()
-    }
-
     serializeScopedNot(
         scopeInfo: ScopeInfo,
         condition: ScopedCondition
@@ -147,7 +103,7 @@ export class SimpleSerializer implements ISerializer {
             nextBuilder => {
                 const nextScope: ScopeInfo = {
                     shared: scopeInfo.shared,
-                    table: this.getNextTable(scopeInfo, condition),
+                    table: Helpers.getNextTable(scopeInfo, condition),
                     builder: nextBuilder,
                     where: nextBuilder.andWhere.bind(nextBuilder)
                 }
@@ -171,7 +127,7 @@ export class SimpleSerializer implements ISerializer {
                     : nextBuilder.orWhere.bind(nextBuilder)
                 const nextScope: ScopeInfo = {
                     shared: scopeInfo.shared,
-                    table: this.getNextTable(scopeInfo, condition),
+                    table: Helpers.getNextTable(scopeInfo, condition),
                     builder: nextBuilder,
                     where
                 }

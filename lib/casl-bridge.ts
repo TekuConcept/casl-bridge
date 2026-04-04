@@ -20,7 +20,7 @@ import {
     schemaAwareExternalPasses,
 } from './passes'
 import { TypeOrmQueryBuilder, TypeOrmTableInfo } from './schema'
-import { SimpleSerializer } from './serializer/simple-serializer'
+import { SimpleSerializer } from './serializer'
 
 export type FilterObject = MongoQueryObjects
 
