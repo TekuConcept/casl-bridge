@@ -4,15 +4,15 @@
         "module": "commonjs",
         "forceConsistentCasingInFileNames": true,
         "noEmit": true,
-        "rootDir": ".",
+        "rootDir": "..",
         "types": ["mocha", "node", "chai"]
     },
     "include": [
-        "lib/**/*.ts",
-        "lib/**/*.d.ts",
-        "test/**/*.ts",
-        "test/**/*.d.ts",
-        "test/chai-jest-snapshot.d.ts",
-        "mocha.setup.ts"
+        "../lib/**/*.ts",
+        "../lib/**/*.d.ts",
+        "../test/**/*.ts",
+        "../test/**/*.d.ts",
+        "../test/chai-jest-snapshot.d.ts",
+        "../mocha.setup.ts"
     ]
 }
