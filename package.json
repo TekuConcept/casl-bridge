@@ -1,6 +1,6 @@
 {
   "name": "casl-bridge",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "A query bridge between CASL rules and database ORMs",
   "main": "./dist/cjs/lib/index.js",
   "module": "./dist/esm/lib/index.js",
