@@ -5,41 +5,17 @@ import { ScopedCondition } from '../condition/scoped-condition'
 import { PrimitiveCondition } from '../condition/primitive-condition'
 import { PrimOp, ScopeOp } from '../condition/types'
 import { TreeMerger } from './tree-merger'
+import {
+    andScope,
+    joinScope,
+    orScope,
+    prim as primEq,
+    root,
+} from './common.test'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Build a root AND scope with a given alias. */
-function root(alias: string, ...children: any[]): ScopedCondition {
-    const r = new ScopedCondition({ alias, scope: ScopeOp.AND })
-    children.forEach(c => r.push(c))
-    return r
-}
-
-/** Build a join scope (relation hop). */
-function joinScope(column: string, parentAlias: string, scope = ScopeOp.AND): ScopedCondition {
-    return new ScopedCondition({ column, alias: `${parentAlias}_${column}`, scope, join: true })
-}
-
-/** Build a non-join AND scope (no relation hop). */
-function andScope(...children: any[]): ScopedCondition {
-    const s = new ScopedCondition({ scope: ScopeOp.AND })
-    children.forEach(c => s.push(c))
-    return s
-}
-
-/** Build a non-join OR scope. */
-function orScope(...children: any[]): ScopedCondition {
-    const s = new ScopedCondition({ scope: ScopeOp.OR })
-    children.forEach(c => s.push(c))
-    return s
-}
-
-/** Build a primitive EQ condition with the given column and value. */
-function primEq(column: string, value: any): PrimitiveCondition {
-    return new PrimitiveCondition({ column, operator: PrimOp.EQUAL, operand: value })
-}
 
 /** Build a primitive GT condition. */
 function primGt(column: string, value: any): PrimitiveCondition {

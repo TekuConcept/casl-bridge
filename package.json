@@ -10,7 +10,7 @@
     "test:cov": "c8 npm run test",
     "build": "tsc",
     "lines:dev": "cloc lib",
-    "lines": "cloc lib --not-match-f='\\.spec\\.ts$' --ignore-case-ext --sum-one"
+    "lines": "cloc lib --not-match-f='\\.(spec|test)\\.ts$' --ignore-case-ext --sum-one"
   },
   "repository": {
     "type": "git",

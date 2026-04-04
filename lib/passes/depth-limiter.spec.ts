@@ -3,49 +3,16 @@ import { expect } from 'chai'
 import { LiteralCondition } from '../condition/literal-condition'
 import { ScopedCondition } from '../condition/scoped-condition'
 import { PrimitiveCondition } from '../condition/primitive-condition'
-import { PrimOp, ScopeOp } from '../condition/types'
+import { ScopeOp } from '../condition/types'
 import { DepthLimiter } from './depth-limiter'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Build a root AND scope that wraps the given child conditions. */
-function root(alias: string, ...children: ScopedCondition[]): ScopedCondition {
-    const r = new ScopedCondition({ alias, scope: ScopeOp.AND })
-    children.forEach(c => r.push(c))
-    return r
-}
-
-/** Build a join scope (relation hop). */
-function joinScope(column: string, parentAlias: string, scope = ScopeOp.AND): ScopedCondition {
-    const alias = `${parentAlias}_${column}`
-    return new ScopedCondition({ column, alias, scope, join: true })
-}
-
-/** Build a non-join AND scope (no relation hop). */
-function andScope(alias?: string): ScopedCondition {
-    return new ScopedCondition({ alias, scope: ScopeOp.AND })
-}
-
-/** Build a non-join OR scope. */
-function orScope(alias?: string): ScopedCondition {
-    return new ScopedCondition({ alias, scope: ScopeOp.OR })
-}
-
-/** Build a non-join NOT scope. */
-function notScope(alias?: string): ScopedCondition {
-    return new ScopedCondition({ alias, scope: ScopeOp.NOT })
-}
-
-/** Build a primitive EQ condition. */
-function prim(column: string): PrimitiveCondition {
-    return new PrimitiveCondition({
-        column,
-        operator: PrimOp.EQUAL,
-        operand: 1,
-    })
-}
+import {
+    andScopeAlias as andScope,
+    joinScope,
+    notScopeAlias as notScope,
+    orScopeAlias as orScope,
+    prim,
+    root,
+} from './common.test'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Suite

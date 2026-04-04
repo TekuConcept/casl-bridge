@@ -9,42 +9,17 @@ import {
     RelationIdMeta,
     RelationMetaProvider,
 } from './relation-id-rewriter'
+import {
+    andScopeColumn as andScope,
+    joinScope,
+    orScopeColumn as orScope,
+    root,
+    prim,
+} from './common.test'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Build a root AND scope (alias set, no join). */
-function root(alias: string, ...children: ScopedCondition[]): ScopedCondition {
-    const r = new ScopedCondition({ alias, scope: ScopeOp.AND })
-    children.forEach(c => r.push(c))
-    return r
-}
-
-/** Build a join scope (relation hop). */
-function joinScope(
-    column: string,
-    parentAlias: string,
-    scope = ScopeOp.AND,
-): ScopedCondition {
-    const alias = `${parentAlias}_${column}`
-    return new ScopedCondition({ column, alias, scope, join: true })
-}
-
-/** Build a non-join AND scope. */
-function andScope(column?: string): ScopedCondition {
-    return new ScopedCondition({ scope: ScopeOp.AND, column: column ?? null })
-}
-
-/** Build a non-join OR scope. */
-function orScope(column?: string): ScopedCondition {
-    return new ScopedCondition({ scope: ScopeOp.OR, column: column ?? null })
-}
-
-/** Build a primitive EQ condition. */
-function prim(column: string, value: any = 1): PrimitiveCondition {
-    return new PrimitiveCondition({ column, operator: PrimOp.EQUAL, operand: value })
-}
 
 /** Build primitive conditions. */
 function $gt(column: string, value = 0): PrimitiveCondition {

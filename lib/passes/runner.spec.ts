@@ -14,27 +14,11 @@ import {
     relationIdRewriterPass,
 } from './runner'
 import { PassError } from './types'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function makeRoot(alias = '__root__'): ScopedCondition {
-    return new ScopedCondition({ alias, scope: ScopeOp.AND })
-}
-
-function joinScope(column: string, parentAlias: string): ScopedCondition {
-    return new ScopedCondition({
-        column,
-        alias: `${parentAlias}_${column}`,
-        scope: ScopeOp.AND,
-        join: true,
-    })
-}
-
-function prim(column: string): PrimitiveCondition {
-    return new PrimitiveCondition({ column, operator: PrimOp.EQUAL, operand: 1 })
-}
+import {
+    joinScope,
+    prim,
+    root as makeRoot,
+} from './common.test'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // runPasses
