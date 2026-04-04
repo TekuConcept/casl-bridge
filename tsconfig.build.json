@@ -9,6 +9,7 @@
         "node_modules",
         "./dist/**/*",
         "./test/**/*",
-        "lib/**/*.spec.ts"
+        "lib/**/*.spec.ts",
+        "lib/**/*.test.ts"
     ]
 }

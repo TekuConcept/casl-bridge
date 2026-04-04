@@ -5,8 +5,8 @@
   "main": "dist/lib/index.js",
   "typings": "./index.d.ts",
   "scripts": {
-    "test": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts 'lib/**/*.spec.ts'",
-    "test:": "TS_NODE_PROJECT=tsconfig.test.json NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.ts",
+    "test": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts 'lib/**/*.spec.ts'",
+    "test:": "TS_NODE_PROJECT=tsconfig.test.json TS_NODE_FILES=true NODE_OPTIONS=--no-warnings=MODULE_TYPELESS_PACKAGE_JSON mocha --require ts-node/register --require tsconfig-paths/register --file mocha.setup.ts",
     "test:cov": "c8 npm run test",
     "build": "tsc",
     "lines:dev": "cloc lib",

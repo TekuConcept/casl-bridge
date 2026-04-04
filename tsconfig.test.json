@@ -12,6 +12,7 @@
         "lib/**/*.d.ts",
         "test/**/*.ts",
         "test/**/*.d.ts",
-        "mocha.ts"
+        "test/chai-jest-snapshot.d.ts",
+        "mocha.setup.ts"
     ]
 }

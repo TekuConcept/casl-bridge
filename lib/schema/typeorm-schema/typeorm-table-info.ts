@@ -1,24 +1,18 @@
 import {
-    Brackets,
     DataSource,
     EntityManager,
-    NotBrackets,
     Repository,
     SelectQueryBuilder,
-    WhereExpressionBuilder
 } from 'typeorm'
 import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata'
-import { RelationMetadata } from 'typeorm/metadata/RelationMetadata'
 import {
     ITableInfo,
     IColumnInfo,
-    IBrackets,
-    IQueryBuilder,
-    BracketsCallback,
     ColumnIteratorCallback
-} from './types'
-
-type ColumnUnion = ColumnMetadata | RelationMetadata
+} from '../types'
+import { ColumnUnion, JoinFunction } from './types'
+import { TypeOrmColumnInfo } from './typeorm-column-info'
+import { TypeOrmSelectQueryBuilder } from './typeorm-select-query-builder'
 
 /** Wraps a TypeORM repo object */
 export class TypeOrmTableInfo implements ITableInfo {
@@ -207,144 +201,4 @@ export class TypeOrmTableInfo implements ITableInfo {
             if (!attr) join(relation, alias)
         }
     }
-}
-
-/** Wraps a TypeORM column object */
-export class TypeOrmColumnInfo implements IColumnInfo {
-    constructor(
-        readonly data: ColumnUnion,
-        readonly quoteName: (name: string) => string,
-        readonly relation: Repository<any> | null = null
-    ) {}
-
-    getName(): string { return this.data.propertyName }
-
-    getQuotedName(name?: string): string {
-        return name
-            ? this.quoteName(name)
-            : this.quoteName(this.data.propertyName)
-    }
-
-    getRelation(): ITableInfo | null {
-        // TODO: [cache] relation objects
-        return this.relation ? new TypeOrmTableInfo(this.relation) : null
-    }
-
-    isJoinable(): boolean { return !!this.relation }
-
-    isJsonColumn(): boolean {
-        if (this.relation) return false
-        const col = this.data as ColumnMetadata
-        const type = col.type as string
-        return type === 'json' || type === 'simple-json'
-    }
-
-    isIdentifier(): boolean {
-        const SimpleColumnGrammar = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-        return SimpleColumnGrammar.test(this.data.propertyName)
-    }
-}
-
-export class TypeOrmBrackets implements IBrackets {
-    constructor(public readonly data: Brackets) {}
-}
-
-type JoinFunction = (relation: string, alias: string) => void
-type SelectFunction = (columns: string[]) => void
-
-/** Wraps a TypeORM query builder object */
-export class TypeOrmQueryBuilder implements IQueryBuilder {
-    constructor(
-        public readonly data: WhereExpressionBuilder,
-        private readonly _join: JoinFunction,
-        private readonly _select: SelectFunction,
-        private readonly _params: object = {}
-    ) {}
-
-    /**
-     * This helps to generate unique parameter names.
-     * Each key in the `_params` object is a parameter
-     * name that has already been added to the builder.
-     */
-    nextParamId(): number {
-        const pattern = /^param_(\d+)$/
-        const keys = Object
-            .keys(this._params)
-            .filter(k => pattern.test(k))
-            .sort()
-        if (keys.length === 0) return 0
-        return parseInt(keys[keys.length - 1].match(pattern)![1]) + 1
-    }
-
-    join(relation: string, alias: string): TypeOrmQueryBuilder {
-        this._join(relation, alias)
-        return this
-    }
-
-    select(columns: string[]): TypeOrmQueryBuilder {
-        this._select(columns)
-        return this
-    }
-
-    where(
-        condition: string | IBrackets,
-        parameters?: object
-    ): TypeOrmQueryBuilder {
-        if (typeof condition === 'string')
-            this.data.where(condition, parameters)
-        else this.data.where(condition.data, parameters)
-        return this
-    }
-
-    andWhere(
-        condition: string | IBrackets,
-        parameters?: object
-    ): TypeOrmQueryBuilder {
-        if (typeof condition === 'string')
-            this.data.andWhere(condition, parameters)
-        else this.data.andWhere(condition.data, parameters)
-        return this
-    }
-
-    orWhere(
-        condition: string | IBrackets,
-        parameters?: object
-    ): TypeOrmQueryBuilder {
-        if (typeof condition === 'string')
-            this.data.orWhere(condition, parameters)
-        else this.data.orWhere(condition.data, parameters)
-        return this
-    }
-
-    createBrackets(callback: BracketsCallback): TypeOrmBrackets {
-        const brackets = new Brackets(qb => {
-            const builder = new TypeOrmQueryBuilder(
-                qb,
-                this._join,
-                this._select,
-                this._params
-            )
-            callback(builder)
-        })
-
-        return new TypeOrmBrackets(brackets)
-    }
-
-    createNotBrackets(callback: BracketsCallback): TypeOrmBrackets {
-        const brackets = new NotBrackets(qb => {
-            const builder = new TypeOrmQueryBuilder(
-                qb,
-                this._join,
-                this._select,
-                this._params
-            )
-            callback(builder)
-        })
-
-        return new TypeOrmBrackets(brackets)
-    }
-}
-
-export class TypeOrmSelectQueryBuilder extends TypeOrmQueryBuilder {
-    declare data: SelectQueryBuilder<any>
 }
